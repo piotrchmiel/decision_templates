@@ -13,5 +13,6 @@ def train():
     gnb = GaussianNB()
     dectempl = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)])
     dectempl.fit(target, labels)
+    print(dectempl.score(target, labels))
 if __name__ == '__main__':
     train()

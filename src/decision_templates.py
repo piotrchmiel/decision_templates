@@ -9,6 +9,7 @@ from functools import partial
 
 import numpy as np
 
+from sklearn.utils import check_array
 from sklearn.base import BaseEstimator
 from sklearn.base import ClassifierMixin
 from sklearn.base import TransformerMixin
@@ -50,6 +51,7 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         self.estimators = estimators
         self.named_estimators = dict(estimators)
         self.n_jobs = n_jobs
+        self._norm = self.eucklidean_similarity
 
     def fit(self, X, y, sample_weight=None):
         """ Fit the estimators.
@@ -135,33 +137,20 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         """
 
         check_is_fitted(self, 'estimators_')
-        if self.voting == 'soft':
-            maj = np.argmax(self.predict_proba(X), axis=1)
 
-        else:  # 'hard' voting
-            predictions = self._predict(X)
-            maj = np.apply_along_axis(lambda x:
-                                      np.argmax(np.bincount(x,
-                                                weights=self.weights)),
-                                      axis=1,
-                                      arr=predictions.astype('int'))
-
-        maj = self.le_.inverse_transform(maj)
-
-        return maj
-
-    def _collect_probas(self, X):
-        """Collect results from clf.predict calls. """
-        return np.asarray([clf.predict_proba(X) for clf in self.estimators_])
+        return self.le_.inverse_transform(np.argmax(self.predict_proba(X), axis=1))
 
     def _predict_proba(self, X):
-        """Predict class probabilities for X in 'soft' voting """
-        if self.voting == 'hard':
-            raise AttributeError("predict_proba is not available when"
-                                 " voting=%r" % self.voting)
         check_is_fitted(self, 'estimators_')
-        avg = np.average(self._collect_probas(X), axis=0, weights=self.weights)
-        return avg
+        X = check_array(X, accept_sparse='csr')
+        return [self._collect_probas(feature_vector) for feature_vector in X]
+
+    def _collect_probas(self, feature_vector):
+        DP = self._make_decision_profile(feature_vector)
+        return [self._norm(self.templates_[label], DP) for label in self.le_.transform(self.classes_)]
+
+    def eucklidean_similarity(self, DT, DP):
+        return 1 - (np.sum(np.power(np.subtract(DT, DP), 2)) / (len(self.estimators_) * len(self.classes_)))
 
     @property
     def predict_proba(self):
@@ -199,10 +188,8 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
             Class labels predicted by each classifier.
         """
         check_is_fitted(self, 'estimators_')
-        if self.voting == 'soft':
-            return self._collect_probas(X)
-        else:
-            return self._predict(X)
+
+        return self._predict(X)
 
     def get_params(self, deep=True):
         """Return estimator parameter names for GridSearch support"""
