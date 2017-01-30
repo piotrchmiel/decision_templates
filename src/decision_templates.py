@@ -10,6 +10,7 @@ from functools import partial
 import numpy as np
 
 from sklearn.utils import check_array
+from sklearn.utils.validation import check_consistent_length
 from sklearn.base import BaseEstimator
 from sklearn.base import ClassifierMixin
 from sklearn.base import TransformerMixin
@@ -19,6 +20,7 @@ from sklearn.externals import six
 from sklearn.externals.joblib import Parallel, delayed
 from sklearn.utils.validation import has_fit_parameter, check_is_fitted
 from sklearn.ensemble.voting_classifier import _parallel_fit_estimator
+from typing import List, Tuple
 
 
 class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMixin):
@@ -47,11 +49,31 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         DecisionTemplates.
     """
 
-    def __init__(self, estimators, n_jobs=1):
+    def __init__(self, estimators: List[Tuple[str, BaseEstimator]], similarity_measure: [str] = 'euclidean',
+                 n_jobs: [int] = 1):
+        self._validate_parameters(estimators=estimators, similarity_measure=similarity_measure, n_jobs=n_jobs)
         self.estimators = estimators
         self.named_estimators = dict(estimators)
+        self.similarity_measure = similarity_measure
         self.n_jobs = n_jobs
-        self._norm = self.eucklidean_similarity
+        self.estimators_ = []
+        self.classes_ = []
+
+        similarity_measures = {'euclidean': self.eucklidean_similarity}
+        self._norm = similarity_measures[similarity_measure]
+
+    def _validate_parameters(self, estimators: List[Tuple[str, BaseEstimator]], similarity_measure: [str],
+                             n_jobs: [int]):
+        if estimators is None or len(estimators) == 0:
+            raise AttributeError('Invalid `estimators` attribute, `estimators`'
+                                 ' should be a list of (string, estimator)'
+                                 ' tuples')
+
+        if not isinstance(n_jobs, int):
+            raise AttributeError("Invalid `n_jobs` should be int")
+
+        if similarity_measure not in ['euclidean']:
+            raise ValueError("Unrecognized similarity measure:".format(similarity_measure))
 
     def fit(self, X, y, sample_weight=None):
         """ Fit the estimators.
@@ -78,11 +100,6 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
             raise NotImplementedError('Multilabel and multi-output'
                                       ' classification is not supported.')
 
-        if self.estimators is None or len(self.estimators) == 0:
-            raise AttributeError('Invalid `estimators` attribute, `estimators`'
-                                 ' should be a list of (string, estimator)'
-                                 ' tuples')
-
         if sample_weight is not None:
             for name, step in self.estimators:
                 if not has_fit_parameter(step, 'sample_weight'):
@@ -92,7 +109,6 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         self.le_ = LabelEncoder()
         self.le_.fit(y)
         self.classes_ = self.le_.classes_
-        self.estimators_ = []
         transformed_y = self.le_.transform(y)
 
         self.estimators_ = Parallel(n_jobs=self.n_jobs)(
@@ -150,6 +166,7 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         return [self._norm(self.templates_[label], DP) for label in self.le_.transform(self.classes_)]
 
     def eucklidean_similarity(self, DT, DP):
+        check_consistent_length(DT, DP)
         return 1 - (np.sum(np.power(np.subtract(DT, DP), 2)) / (len(self.estimators_) * len(self.classes_)))
 
     @property
