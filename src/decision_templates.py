@@ -58,6 +58,7 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         self.n_jobs = n_jobs
         self.estimators_ = []
         self.classes_ = []
+        self.le_ = LabelEncoder()
 
         similarity_measures = {'euclidean': self.eucklidean_similarity}
         self._norm = similarity_measures[similarity_measure]
@@ -106,7 +107,6 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
                     raise ValueError('Underlying estimator \'%s\' does not support'
                                      ' sample weights.' % name)
 
-        self.le_ = LabelEncoder()
         self.le_.fit(y)
         self.classes_ = self.le_.classes_
         transformed_y = self.le_.transform(y)
@@ -115,15 +115,13 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
                 delayed(_parallel_fit_estimator)(clone(clf), X, transformed_y,
                     sample_weight)
                     for _, clf in self.estimators)
-
         self.templates_ = defaultdict(partial(np.zeros, shape=[len(self.estimators_),
                                                                len(self.classes_)], dtype=np.float))
-
         for i, label in enumerate(transformed_y):
             self.templates_[label] += self._make_decision_profile(X[i])
 
-        cnt = Counter(transformed_y)
-        for label, count in cnt.items():
+        self.cnt = Counter(transformed_y)
+        for label, count in self.cnt.items():
             self.templates_[label] /= count
 
         return self
@@ -134,6 +132,7 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
         for i, estimator in enumerate(self.estimators_):
             assert np.array_equal(estimator.classes_, self.le_.transform(self.classes_))
+            print(estimator.predict_proba)
             decision_profile[i] = estimator.predict_proba([x])
         return decision_profile
 
