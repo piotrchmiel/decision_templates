@@ -29,9 +29,19 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
     Parameters
     ----------
     estimators : list of (string, estimator) tuples
-        Invoking the ``fit`` method on the ``VotingClassifier`` will fit clones
+        Invoking the ``fit`` method on the ``DecisionTemplatesClassifier`` will fit clones
         of those original estimators that will be stored in the class attribute
         `self.estimators_`.
+
+    similarity_measure: string, optional (default='euclidean')
+        Algorithm used to compute similarity between decision template
+        and decision profile from sample in predict proba
+            ‘euclidean’ will use euclidean norm
+
+    template_creation: {'avg', 'med'} string, optional (default='avg')
+        Algorithm used to create decision template for classs:
+            ‘avg’ will use average
+            ‘med’ will use median
 
     n_jobs : int, optional (default=1)
         The number of jobs to run in parallel for ``fit``.
@@ -50,21 +60,28 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
     """
 
     def __init__(self, estimators: List[Tuple[str, BaseEstimator]], similarity_measure: [str] = 'euclidean',
-                 n_jobs: [int] = 1):
-        self._validate_parameters(estimators=estimators, similarity_measure=similarity_measure, n_jobs=n_jobs)
+                 template_creation: [str] = 'avg', n_jobs: [int] = 1):
+        self._validate_parameters(estimators=estimators, similarity_measure=similarity_measure,
+                                  template_creation=template_creation, n_jobs=n_jobs)
         self.estimators = estimators
         self.named_estimators = dict(estimators)
         self.similarity_measure = similarity_measure
+        self.template_creation = template_creation
         self.n_jobs = n_jobs
         self.estimators_ = []
         self.classes_ = []
         self.le_ = LabelEncoder()
 
         similarity_measures = {'euclidean': self.eucklidean_similarity}
-        self._norm = similarity_measures[similarity_measure]
+        template_creation_algorithms = {'avg': self._fit_one_template_for_each_class_by_avg,
+                                        'med': self._fit_one_template_for_each_class_by_med}
+
+        self._similarity_measure = similarity_measures[self.similarity_measure]
+        self._fit_one_template_for_each_class = template_creation_algorithms[self.template_creation]
 
     def _validate_parameters(self, estimators: List[Tuple[str, BaseEstimator]], similarity_measure: [str],
-                             n_jobs: [int]):
+                             template_creation: [str], n_jobs: [int]):
+
         if estimators is None or len(estimators) == 0:
             raise AttributeError('Invalid `estimators` attribute, `estimators`'
                                  ' should be a list of (string, estimator)'
@@ -72,6 +89,9 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
         if not isinstance(n_jobs, int):
             raise AttributeError("Invalid `n_jobs` should be int")
+
+        if template_creation not in ['avg', 'med']:
+            raise ValueError("Unrecognized template_creation:".format(template_creation))
 
         if similarity_measure not in ['euclidean']:
             raise ValueError("Unrecognized similarity measure:".format(similarity_measure))
@@ -115,21 +135,52 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
                 delayed(_parallel_fit_estimator)(clone(clf), X, transformed_y,
                     sample_weight)
                     for _, clf in self.estimators)
-        self.templates_ = defaultdict(partial(np.zeros, shape=[len(self.estimators_),
-                                                               len(self.classes_)], dtype=np.float))
-        for i, label in enumerate(transformed_y):
-            self.templates_[label] += self._make_decision_profile(X[i])
 
-        self.cnt = Counter(transformed_y)
-        for label, count in self.cnt.items():
-            self.templates_[label] /= count
-
+        self._fit_templates(X, transformed_y, sample_weight)
         return self
+
+    def _fit_templates(self, X, y, sample_weight=None):
+        if sample_weight is None:
+            curr_sample_weight = np.ones((y.shape))
+        else:
+            curr_sample_weight = sample_weight.copy()
+
+        self.templates_ = defaultdict(list)
+
+        temp_templates = self._fit_one_template_for_each_class(X, y, curr_sample_weight)
+        for label, template in temp_templates.items():
+            self.templates_[label].append(template)
+
+    def _fit_one_template_for_each_class_by_avg(self, X, y, sample_weight):
+        templates = defaultdict(partial(np.zeros, shape=[len(self.estimators_), len(self.classes_)], dtype=np.float))
+        count_weights = Counter()
+
+        for sample_no, (label, weight) in enumerate(zip(y, sample_weight)):
+            templates[label] += np.multiply(self._make_decision_profile(X[sample_no]), weight)
+            count_weights.update({label: weight})
+
+        for label, count in count_weights.items():
+            if count != 0:
+                templates[label] /= count
+
+        return templates
+
+    def _fit_one_template_for_each_class_by_med(self, X, y, sample_weight):
+        templates = defaultdict(partial(np.zeros, shape=[len(self.estimators_), len(self.classes_)], dtype=np.float))
+        templates_temp = defaultdict(list)
+
+        for sample_no, (label, weight) in enumerate(zip(y, sample_weight)):
+            DP = self._make_decision_profile(X[sample_no])
+            for _ in range(int(weight)):
+                templates_temp[label].append(DP)
+
+        for label in templates_temp.keys():
+            templates[label] = np.median(np.asarray(templates_temp[label]), axis=0)
+        return templates
 
     def _make_decision_profile(self, x):
         check_is_fitted(self, 'estimators_')
         decision_profile = np.zeros([len(self.estimators_), len(self.classes_)], dtype=np.float)
-
         for i, estimator in enumerate(self.estimators_):
             assert np.array_equal(estimator.classes_, self.le_.transform(self.classes_))
             print(estimator.predict_proba)
@@ -162,7 +213,14 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
     def _collect_probas(self, feature_vector):
         DP = self._make_decision_profile(feature_vector)
-        return [self._norm(self.templates_[label], DP) for label in self.le_.transform(self.classes_)]
+
+        similarities = defaultdict(list)
+
+        for label in self.le_.transform(self.classes_):
+            for template in self.templates_[label]:
+                similarities[label].append((self._similarity_measure(template, DP)))
+
+        return [max(similarities[label]) for label in self.le_.transform(self.classes_)]
 
     def eucklidean_similarity(self, DT, DP):
         check_consistent_length(DT, DP)

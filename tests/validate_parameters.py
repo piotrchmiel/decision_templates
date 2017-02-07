@@ -19,3 +19,8 @@ class ValidateParameters(unittest.TestCase):
         for parameter in [None, "10", "20", []]:
             with self.assertRaises(ValueError):
                 DecisionTemplatesClassifier(estimators=[("KNN", KNeighborsClassifier)], similarity_measure=parameter)
+
+    def test_should_validate_template_creation_in_init(self):
+        for parameter in [None, "10", "20", []]:
+            with self.assertRaises(ValueError):
+                DecisionTemplatesClassifier(estimators=[("KNN", KNeighborsClassifier)], template_creation=parameter)
