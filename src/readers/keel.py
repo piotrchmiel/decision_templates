@@ -4,7 +4,7 @@ import itertools
 import urllib.parse
 import urllib.request
 import numpy as np
-from typing import Tuple, List, Callable, Any
+from typing import Tuple, List, Callable, Any, Generator
 
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.pipeline import make_pipeline
@@ -27,6 +27,19 @@ class KeelReader(object):
         attributes, start = self.read_header(filename=filename)
         data, target, = self.read_data(filename=filename, start=start, delimiter=',', attributes=attributes)
         return self._processor.fit_transform(data), np.asarray(target), self._vectorizer.get_feature_names()
+
+    def make_k_fold_generator(self, filename: str, missing_values: bool, cv: int, *args, **kwargs):
+        k_fold_filename = filename + '-' + str(cv) + '-fold'
+        self.prepare_data(k_fold_filename, missing_values)
+
+        def k_fold_generator():
+            for i in range(1, cv+1):
+                i_fold_filename = filename + '-' + str(cv) + '-' + str(i)
+                train_data, train_labels, _ = self.read(i_fold_filename + 'tra', missing_values)
+                test_data, test_labels, _ = self.read(i_fold_filename + 'tst', missing_values)
+                yield train_data, train_labels, test_data, test_labels
+
+        return k_fold_generator()
 
     def prepare_data(self, filename: str, missing_values: bool) -> None:
         if not self._data_exists(filename, 'dat'):

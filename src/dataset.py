@@ -1,5 +1,5 @@
 from enum import Enum, unique
-from typing import Tuple, List
+from typing import Tuple, List, Generator
 import numpy as np
 from src.readers.keel import KeelReader
 from sklearn.datasets.mldata import fetch_mldata
@@ -63,3 +63,11 @@ class DataProvider(object):
             return data, mldata_set.target, data[0].tolist()
         elif self.source_map[learning_set]['source'] == 'keel':
             return self.keel_reader.read(**self.source_map[learning_set])
+
+    def make_k_fold_generator(self, learning_set: LearningSet, cv: int):
+        if not isinstance(learning_set, LearningSet):
+            raise TypeError("Argument should be LearningSet enum type!")
+        elif not self.source_map[learning_set]['source'] == 'keel':
+            raise Exception("Function available for keel datasets")
+        else:
+            return self.keel_reader.make_k_fold_generator(**self.source_map[learning_set], cv=cv)
