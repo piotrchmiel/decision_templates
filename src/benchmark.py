@@ -17,7 +17,7 @@ class Benchmark(object):
         self.provider = DataProvider()
 
     def cross_validation_score(self, estimator: DecisionTemplatesClassifier, learningSet: LearningSet,
-                               groups: np.ndarray = None, scoring: str = None, cv: int = 10, n_jobs: int = 1,
+                               groups: np.ndarray = None, scoring: str = None, cv: int = 10, n_jobs: int = -1,
                                verbose: int = 0, fit_params: dict = None, pre_dispatch: str ='2*n_jobs') -> List[float]:
         try:
             keel_iterator = self.provider.make_k_fold_generator(learningSet, cv)
@@ -43,8 +43,8 @@ if __name__ == '__main__':
     gnb = GaussianNB()
     dectempl_avg = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)], template_creation='avg')
 
-    print(bench.cross_validation_score(dectempl_avg, learningSet=LearningSet.vehicle))
+    print(np.average(bench.cross_validation_score(dectempl_avg, learningSet=LearningSet.satimage)))
 
     dectempl_med = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)], template_creation='med')
 
-    print(bench.cross_validation_score(dectempl_med, learningSet=LearningSet.vehicle))
+    print(np.average(bench.cross_validation_score(dectempl_med, learningSet=LearningSet.satimage)))
