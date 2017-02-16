@@ -13,14 +13,10 @@ def train():
     gnb = GaussianNB()
     dectempl = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)], template_creation='avg')
     dectempl.fit(target, labels)
-    print(dectempl.templates_[0])
     print(dectempl.score(target, labels))
     dectempl = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)], template_creation='med')
     dectempl.fit(target, labels)
     print(dectempl.score(target, labels))
-    print(dectempl.templates_[0])
 
-    bag = BaggingClassifier(lr, 10)
-    bag.fit(target, labels)
 if __name__ == '__main__':
     train()

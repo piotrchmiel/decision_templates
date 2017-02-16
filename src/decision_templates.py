@@ -59,8 +59,8 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         DecisionTemplates.
     """
 
-    def __init__(self, estimators: List[Tuple[str, BaseEstimator]], similarity_measure: [str] = 'euclidean',
-                 template_creation: [str] = 'avg', n_jobs: [int] = 1):
+    def __init__(self, estimators: List[Tuple[str, BaseEstimator]], similarity_measure: str = 'euclidean',
+                 template_creation: str = 'avg', n_jobs: int     = 1):
         self._validate_parameters(estimators=estimators, similarity_measure=similarity_measure,
                                   template_creation=template_creation, n_jobs=n_jobs)
         self.estimators = estimators
@@ -183,7 +183,6 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         decision_profile = np.zeros([len(self.estimators_), len(self.classes_)], dtype=np.float)
         for i, estimator in enumerate(self.estimators_):
             assert np.array_equal(estimator.classes_, self.le_.transform(self.classes_))
-            print(estimator.predict_proba)
             decision_profile[i] = estimator.predict_proba([x])
         return decision_profile
 

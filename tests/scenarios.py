@@ -25,7 +25,7 @@ class ScenariosBase(object):
 class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
     def setUp(self):
         super(ScenariosAverageTemplate, self).setUp()
-        self.target, self.labels = self.provider.get(LearningSet.iris)
+        self.target, self.labels, _ = self.provider.get(LearningSet.iris)
 
         def side_effect_generator():
             support_result = np.array([0.0, 0.0, 0.0])
@@ -39,7 +39,6 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
             self.estimators_mock[i][1].predict_proba = Mock(side_effect=side_effect_generator())
             self.estimators_mock[i][1].classes_ = [0, 1, 2]
 
-
     def test_create_fit_one_template_per_class_by_avg_classical_kuncheva_algorithm(self):
         for estimator_no in range(1, len(self.estimators) + 1):
 
@@ -47,7 +46,7 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
                 estimators=self.estimators[:estimator_no])
 
             self.dectempl.fit(self.target, self.labels)
-            testing.assert_array_equal(self.dectempl.classes_, [1, 2, 3])
+            testing.assert_array_equal(self.dectempl.classes_, ['Iris-setosa', 'Iris-versicolor', 'Iris-virginica'])
             testing.assert_array_equal(self.dectempl.le_.transform(self.dectempl.classes_), [0, 1, 2])
 
             self.assertEqual(len(self.dectempl.templates_.keys()), 3)
@@ -60,14 +59,15 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
     def test_predict_one_template_per_class_by_avg_classical_kuncheva_algorithm(self):
         self.dectempl.fit(self.target, self.labels)
         np.testing.assert_array_equal(self.dectempl.predict_proba([self.target[0]]),
-                         [[0.99913655057051631, 0.52665233786702026, 0.4507965644527222]])
-        self.assertEqual(self.dectempl.predict([self.target[0]]), 1)
+                                      [[0.99996380550968655, 0.59543293656855445, 0.58100665521394679]])
+        self.assertEqual(self.dectempl.predict([self.target[0]]), 'Iris-setosa')
         np.testing.assert_array_equal(self.dectempl.predict_proba([self.target[1]]),
-                                      [[0.99631684202062598, 0.5843003218440872, 0.50063006479511785]])
+                                      [[0.99929086373833642, 0.6131342371589803, 0.59414955137607195]])
+        self.assertEqual(self.dectempl.predict([self.target[1]]), 'Iris-setosa')
         np.testing.assert_array_equal(self.dectempl.predict_proba(self.target[0:2]),
-                                      [[0.99913655057051631, 0.52665233786702026, 0.4507965644527222],
-                                       [0.99631684202062598, 0.5843003218440872, 0.50063006479511785]])
-        np.testing.assert_array_equal(self.dectempl.predict(self.target[0:2]), [1, 1])
+                                      [[0.99996380550968655, 0.59543293656855445, 0.58100665521394679],
+                                       [0.99929086373833642, 0.6131342371589803, 0.59414955137607195]])
+        np.testing.assert_array_equal(self.dectempl.predict(self.target[0:2]), ['Iris-setosa', 'Iris-setosa'])
 
 
     @patch('src.decision_templates.Parallel.__call__')
@@ -80,7 +80,7 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
 
         parallel.assert_called_once()
 
-        testing.assert_array_equal(self.dectempl.classes_, [1, 2, 3])
+        testing.assert_array_equal(self.dectempl.classes_, ['Iris-setosa', 'Iris-versicolor', 'Iris-virginica'])
         testing.assert_array_equal(self.dectempl.le_.transform(self.dectempl.classes_), [0, 1, 2])
         self.assertEqual(len(self.dectempl.templates_.keys()), 3)
         self.assertListEqual(list(self.dectempl.templates_.keys()), [0, 1, 2])
@@ -89,24 +89,24 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
             self.assertEqual(len(class_templates), 1)
             self.assertTupleEqual(class_templates[0].shape, (len(self.estimators), len(self.dectempl.classes_)))
 
-        result_class_0 = np.asarray([[0.0245, 0.245, 0.49],
-                                     [0.0245, 0.245, 0.49],
-                                     [0.0245, 0.245, 0.49],
-                                     [0.0245, 0.245, 0.49]])
+        result_class_0 = np.asarray([[0.0335, 0.335, 0.67],
+                                     [0.0335, 0.335, 0.67],
+                                     [0.0335, 0.335, 0.67],
+                                     [0.0335, 0.335, 0.67]])
 
         np.testing.assert_almost_equal(self.dectempl.templates_[0][0], result_class_0, 3)
 
-        result_class_1 = np.asarray([[0.075,  0.745,  1.49],
-                                    [0.075,  0.745,  1.49],
-                                    [0.075,  0.745,  1.49],
-                                    [0.075,  0.745,  1.49]])
+        result_class_1 = np.asarray([[0.0745, 0.745, 1.49],
+                                     [0.0745, 0.745, 1.49],
+                                     [0.0745, 0.745, 1.49],
+                                     [0.0745, 0.745, 1.49]])
 
         np.testing.assert_almost_equal(self.dectempl.templates_[1][0], result_class_1, 3)
 
-        result_class_2 = np.asarray([[0.125,  1.245,  2.49],
-                                     [0.125,  1.245,  2.49],
-                                     [0.125,  1.245,  2.49],
-                                     [0.125,  1.245,  2.49]])
+        result_class_2 = np.asarray([[0.1155,  1.155, 2.31],
+                                     [0.1155, 1.155, 2.31],
+                                     [0.1155, 1.155, 2.31],
+                                     [0.1155, 1.155, 2.31]])
 
         np.testing.assert_almost_equal(self.dectempl.templates_[2][0], result_class_2, 3)
 
@@ -145,6 +145,7 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
                                        [0.004,  0.04,  0.08]])
 
         np.testing.assert_array_equal(result['blue'], result_class_blue)
+
 
     def test_fit_one_template_for_each_class_by_avg_with_weights(self):
         fake_y = ['red', 'red', 'green', 'blue', 'green', 'blue', 'green']
