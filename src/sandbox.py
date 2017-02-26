@@ -13,4 +13,5 @@ provider = DataProvider()
 X, y, _ = provider.get(LearningSet.iris)
 
 BaggingClassifier().fit(X, y)
-dectempl_avg._bootstrap(X, np.ones(y.shape))
+for i in dectempl_avg._random_set(5, False, 40, np.ones((40,))):
+    print(i)

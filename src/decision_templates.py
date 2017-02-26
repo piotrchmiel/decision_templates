@@ -264,22 +264,17 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
             decision_profile[i] = estimator.predict_proba([x])
         return decision_profile
 
-    def _bootstrap(self, X: np.ndarray, sample_weight):
-        seed = self.random_state.randint(MAX_INT)
-        random_state = np.random.RandomState(seed)
-
-        n_samples, n_features = X.shape
-
-        features, indices = _generate_bagging_indices(random_state=random_state, bootstrap_features=False,
-                                                      bootstrap_samples=True, n_features=n_features,
-                                                      n_samples=n_samples, max_features=n_features,
-                                                      max_samples=n_samples)
-        curr_sample_weight = sample_weight.copy()
-        sample_counts = bincount(indices, minlength=n_samples)
-        curr_sample_weight *= sample_counts
-
-        return curr_sample_weight
-
+    def _random_set(self, number_to_generate, bootstrap:bool, n_samples: int, sample_weight: List[int]):
+        for _ in range(number_to_generate):
+            seed = self.random_state.randint(MAX_INT)
+            random_state = np.random.RandomState(seed)
+            if bootstrap:
+                indices = random_state.randint(0, n_samples, n_samples)
+                curr_sample_weight = sample_weight.copy()
+                sample_counts = bincount(indices, minlength=n_samples)
+                yield curr_sample_weight * sample_counts
+            else:
+                yield random_state.randint(0, 2, n_samples)
 
     def predict(self, X: np.ndarray):
         """ Predict class labels for X.
