@@ -16,11 +16,13 @@ from sklearn.base import ClassifierMixin
 from sklearn.base import TransformerMixin
 from sklearn.base import clone
 from sklearn.preprocessing import LabelEncoder
-from sklearn.externals import six
 from sklearn.externals.joblib import Parallel, delayed
 from sklearn.utils.validation import has_fit_parameter, check_is_fitted
+from sklearn.utils.fixes import bincount
+from sklearn.utils import check_random_state, indices_to_mask
 from sklearn.ensemble.voting_classifier import _parallel_fit_estimator
-from typing import List, Tuple
+from sklearn.ensemble.bagging import _generate_bagging_indices, MAX_INT
+from typing import List, Tuple, Any, Dict, DefaultDict
 
 
 class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMixin):
@@ -33,6 +35,9 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         of those original estimators that will be stored in the class attribute
         `self.estimators_`.
 
+    groups_mapping : list of tuples, values in tuples determining groups which will include
+                     estimators_ of corresponding index to tuple
+
     similarity_measure: string, optional (default='euclidean')
         Algorithm used to compute similarity between decision template
         and decision profile from sample in predict proba
@@ -42,6 +47,23 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         Algorithm used to create decision template for classs:
             ‘avg’ will use average
             ‘med’ will use median
+
+    decision_similarity: {'separately', 'average_group', 'sum_group'} string, optional (default='separately')
+        Algorithm used to produce similarities for decision function
+            ‘separately’ calculation similarity measure for each template in group separately
+            ‘average_group’ calculating similarity measure for each template in group separately
+                            and then taking average from particular group
+            ‘sum_group’ calculating similarity measure for each template in group separately
+                            and then taking sum from particular group
+
+    decision_strategy: {'max', 'k_nearest'} string, optional (default='max')
+        Algorithm used to make decision and produce predict proba vector
+            ‘max’ - taking class which has max decision similarity measure
+            ‘k_nearest’ - taking k max decision similarity class and then majority voting
+
+    k_similar_templates : int, optional (default=1)
+        Used when``k_nearest`` decision_strategy strategy set.
+        Determining k max similar classes
 
     n_jobs : int, optional (default=1)
         The number of jobs to run in parallel for ``fit``.
@@ -59,33 +81,73 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         DecisionTemplates.
     """
 
-    def __init__(self, estimators: List[Tuple[str, BaseEstimator]], similarity_measure: str = 'euclidean',
-                 template_creation: str = 'avg', n_jobs: int     = 1):
-        self._validate_parameters(estimators=estimators, similarity_measure=similarity_measure,
-                                  template_creation=template_creation, n_jobs=n_jobs)
+    def __init__(self, estimators: List[Tuple[str, BaseEstimator]], groups_mapping: List[Tuple[Any]] = None,
+                 similarity_measure: str = 'euclidean', template_creation: str = 'avg',
+                 decision_similarity: str = 'separately', decision_strategy: str = 'max', k_similar_templates: int = 1,
+                 n_jobs: int = 1) -> None:
+
+        self._validate_parameters(estimators=estimators, group_mapping=groups_mapping,
+                                  similarity_measure=similarity_measure, template_creation=template_creation,
+                                  decision_similarity=decision_similarity, decision_strategy=decision_strategy,
+                                  k_similar_templates=k_similar_templates,
+                                  n_jobs=n_jobs)
+
         self.estimators = estimators
         self.named_estimators = dict(estimators)
         self.similarity_measure = similarity_measure
         self.template_creation = template_creation
+        self.decision_similarity = decision_similarity
+        self.decision_strategy = decision_strategy
+        self.k_similar_templates = k_similar_templates
         self.n_jobs = n_jobs
         self.estimators_ = []
         self.classes_ = []
         self.le_ = LabelEncoder()
+        self.random_state = check_random_state(None)
 
-        similarity_measures = {'euclidean': self.eucklidean_similarity}
+        if groups_mapping is None:
+            self.groups_mapping_ = [(1,) for _ in range(len(estimators))]
+        else:
+            self.groups_mapping_ = Counter()
+
+        self.groups_ = Counter([group_name for group_tuple in self.groups_mapping_ for group_name in set(group_tuple)])
+
+        similarity_measures = {'euclidean': self.euclidean_similarity}
         template_creation_algorithms = {'avg': self._fit_one_template_for_each_class_by_avg,
                                         'med': self._fit_one_template_for_each_class_by_med}
+        decision_algorithms = {'max': self._max_similar_template,
+                               'k_nearest': self._k_nearest_templates}
+
+        decision_similarities_algorithms = {'separately': self._seperately,
+                                            'average_group': self._average_group,
+                                            'sum_group': self._sum_group}
 
         self._similarity_measure = similarity_measures[self.similarity_measure]
         self._fit_one_template_for_each_class = template_creation_algorithms[self.template_creation]
+        self._decision = decision_algorithms[self.decision_strategy]
+        self._make_decision_similarity = decision_similarities_algorithms[self.decision_similarity]
 
-    def _validate_parameters(self, estimators: List[Tuple[str, BaseEstimator]], similarity_measure: [str],
-                             template_creation: [str], n_jobs: [int]):
+    def _validate_parameters(self, estimators: List[Tuple[str, BaseEstimator]], group_mapping: List[Tuple[Any]],
+                             similarity_measure: str, template_creation: str, decision_similarity: str,
+                             decision_strategy: str, k_similar_templates: int,n_jobs: int) -> None:
 
         if estimators is None or len(estimators) == 0:
             raise AttributeError('Invalid `estimators` attribute, `estimators`'
                                  ' should be a list of (string, estimator)'
                                  ' tuples')
+
+        if group_mapping is not None and (not isinstance(group_mapping, list) or len(group_mapping) == 0):
+            raise AttributeError('Invalid `groups` attribute, `estimators`'
+                                 ' should be a non zero length list of tuples.')
+        elif isinstance(group_mapping, list):
+            if len(estimators) != len(group_mapping):
+                raise AttributeError('Invalid `groups` attribute, should have the same len as estimators')
+            else:
+                for element in group_mapping:
+                    if not isinstance(element, tuple):
+                        raise AttributeError('Invalid `groups` attribute, should be list of tuples.')
+                    elif len(element) == 0:
+                        raise AttributeError('Invalid `groups` attribute, tuple inside groups can\'t be empty')
 
         if not isinstance(n_jobs, int):
             raise AttributeError("Invalid `n_jobs` should be int")
@@ -96,7 +158,16 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         if similarity_measure not in ['euclidean']:
             raise ValueError("Unrecognized similarity measure:".format(similarity_measure))
 
-    def fit(self, X, y, sample_weight=None):
+        if decision_similarity not in ['separately', 'average_group', 'sum_group']:
+            raise ValueError("Unrecognized decision_similarity:".format(decision_similarity))
+
+        if decision_strategy not in ['max', 'k_nearest']:
+            raise ValueError("Unrecognized decision_strategy:".format(decision_strategy))
+
+        if not isinstance(k_similar_templates, int) or k_similar_templates <= 0:
+            raise AttributeError("Invalid `k_similar_templates` attribute, should be int > 0")
+
+    def fit(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray= None):
         """ Fit the estimators.
 
         Parameters
@@ -139,54 +210,78 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         self._fit_templates(X, transformed_y, sample_weight)
         return self
 
-    def _fit_templates(self, X, y, sample_weight=None):
+    def _fit_templates(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray = None) -> None:
         if sample_weight is None:
             curr_sample_weight = np.ones((y.shape))
         else:
             curr_sample_weight = sample_weight.copy()
 
-        self.templates_ = defaultdict(list)
+        self.templates_ = defaultdict(lambda: defaultdict(list))
 
-        temp_templates = self._fit_one_template_for_each_class(X, y, curr_sample_weight)
-        for label, template in temp_templates.items():
-            self.templates_[label].append(template)
+        for group in self.groups_:
+            temp_templates = self._fit_one_template_for_each_class(group, X, y, curr_sample_weight)
+            for label, template in temp_templates.items():
+                self.templates_[label][group].append(template)
 
-    def _fit_one_template_for_each_class_by_avg(self, X, y, sample_weight):
-        templates = defaultdict(partial(np.zeros, shape=[len(self.estimators_), len(self.classes_)], dtype=np.float))
+    def _fit_one_template_for_each_class_by_avg(self, group: Any, X: np.ndarray, y: np.ndarray,
+                                                sample_weight: np.ndarray) -> defaultdict:
+
+        templates = defaultdict(partial(np.zeros, shape=[self.groups_[group], len(self.classes_)], dtype=np.float64))
         count_weights = Counter()
 
         for sample_no, (label, weight) in enumerate(zip(y, sample_weight)):
-            templates[label] += np.multiply(self._make_decision_profile(X[sample_no]), weight)
+            templates[label] += np.multiply(self._make_decision_profile(group, X[sample_no]), weight)
             count_weights.update({label: weight})
-
         for label, count in count_weights.items():
             if count != 0:
-                templates[label] /= count
+                templates[label] = np.divide(templates[label], np.float64(count))
 
         return templates
 
-    def _fit_one_template_for_each_class_by_med(self, X, y, sample_weight):
-        templates = defaultdict(partial(np.zeros, shape=[len(self.estimators_), len(self.classes_)], dtype=np.float))
+    def _fit_one_template_for_each_class_by_med(self, group: Any, X: np.ndarray, y: np.ndarray,
+                                                sample_weight: np.ndarray) -> defaultdict:
+
+        templates = defaultdict(partial(np.zeros, shape=[self.groups_[group], len(self.classes_)], dtype=np.float64))
         templates_temp = defaultdict(list)
 
         for sample_no, (label, weight) in enumerate(zip(y, sample_weight)):
-            DP = self._make_decision_profile(X[sample_no])
+            DP = self._make_decision_profile(group, X[sample_no])
             for _ in range(int(weight)):
                 templates_temp[label].append(DP)
 
         for label in templates_temp.keys():
-            templates[label] = np.median(np.asarray(templates_temp[label]), axis=0)
+            templates[label] = np.median(np.asarray(templates_temp[label], dtype=np.float64), axis=0)
         return templates
 
-    def _make_decision_profile(self, x):
+    def _make_decision_profile(self, group: Any, x: np.ndarray) -> np.ndarray:
         check_is_fitted(self, 'estimators_')
-        decision_profile = np.zeros([len(self.estimators_), len(self.classes_)], dtype=np.float)
-        for i, estimator in enumerate(self.estimators_):
+        decision_profile = np.zeros([self.groups_[group], len(self.classes_)], dtype=np.float64)
+        group_estimators = (estimator for estimator, group_map_tupple in zip(self.estimators_, self.groups_mapping_)
+                            if group in group_map_tupple)
+
+        for i, estimator in enumerate(group_estimators):
             assert np.array_equal(estimator.classes_, self.le_.transform(self.classes_))
             decision_profile[i] = estimator.predict_proba([x])
         return decision_profile
 
-    def predict(self, X):
+    def _bootstrap(self, X: np.ndarray, sample_weight):
+        seed = self.random_state.randint(MAX_INT)
+        random_state = np.random.RandomState(seed)
+
+        n_samples, n_features = X.shape
+
+        features, indices = _generate_bagging_indices(random_state=random_state, bootstrap_features=False,
+                                                      bootstrap_samples=True, n_features=n_features,
+                                                      n_samples=n_samples, max_features=n_features,
+                                                      max_samples=n_samples)
+        curr_sample_weight = sample_weight.copy()
+        sample_counts = bincount(indices, minlength=n_samples)
+        curr_sample_weight *= sample_counts
+
+        return curr_sample_weight
+
+
+    def predict(self, X: np.ndarray):
         """ Predict class labels for X.
 
         Parameters
@@ -205,25 +300,47 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
         return self.le_.inverse_transform(np.argmax(self.predict_proba(X), axis=1))
 
-    def _predict_proba(self, X):
+    def _predict_proba(self, X: np.ndarray) -> np.ndarray:
         check_is_fitted(self, 'estimators_')
         X = check_array(X, accept_sparse='csr')
-        return [self._collect_probas(feature_vector) for feature_vector in X]
+        return np.asarray([self._collect_probas(feature_vector) for feature_vector in X], dtype=np.float64)
 
-    def _collect_probas(self, feature_vector):
-        DP = self._make_decision_profile(feature_vector)
+    def _collect_probas(self, feature_vector: np.ndarray) -> np.ndarray:
+        similarities = self._make_decision_similarities(feature_vector)
 
+        return self._decision(similarities)
+
+    def euclidean_similarity(self, DT: np.ndarray, DP: np.ndarray) -> np.float64:
+        check_consistent_length(DT, DP)
+        return np.float64(np.subtract(1.0, np.divide(np.sum(np.power(np.subtract(DT, DP), 2)),
+                                                     np.multiply(len(self.estimators_),len(self.classes_)))))
+
+    def _make_decision_profiles_for_all_groups(self, feature_vector: np.ndarray) -> Dict[Any, np.ndarray]:
+        decision_profiles = {}
+        for group in self.groups_:
+            decision_profiles[group] = self._make_decision_profile(group, feature_vector)
+
+        return decision_profiles
+
+    def _make_decision_similarities(self, feature_vector: np.ndarray) -> DefaultDict[Any, np.ndarray]:
+        decision_profiles = self._make_decision_profiles_for_all_groups(feature_vector)
         similarities = defaultdict(list)
 
         for label in self.le_.transform(self.classes_):
-            for template in self.templates_[label]:
-                similarities[label].append((self._similarity_measure(template, DP)))
+            label_similarities = []
+            for group in self.groups_:
+                label_similarities.append([self._similarity_measure(template, decision_profiles[group])
+                                           for template in self.templates_[label][group]])
 
-        return [max(similarities[label]) for label in self.le_.transform(self.classes_)]
+            similarities[label] = self._make_decision_similarity(np.asarray(label_similarities, dtype=np.float64))
 
-    def eucklidean_similarity(self, DT, DP):
-        check_consistent_length(DT, DP)
-        return 1 - (np.sum(np.power(np.subtract(DT, DP), 2)) / (len(self.estimators_) * len(self.classes_)))
+        return similarities
+
+    def _max_similar_template(self, similarities: DefaultDict[Any, np.ndarray]) -> np.ndarray:
+        return np.asarray([max(similarities[label]) for label in self.le_.transform(self.classes_)], dtype=np.float64)
+
+    def _k_nearest_templates(self, similarities: DefaultDict[Any, np.ndarray]):
+        raise NotImplementedError
 
     @property
     def predict_proba(self):
@@ -264,18 +381,15 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
         return self._predict(X)
 
-    def get_params(self, deep=True):
-        """Return estimator parameter names for GridSearch support"""
-        if not deep:
-            return super(DecisionTemplatesClassifier, self).get_params(deep=False)
-        else:
-            out = super(DecisionTemplatesClassifier, self).get_params(deep=False)
-            out.update(self.named_estimators.copy())
-            for name, step in six.iteritems(self.named_estimators):
-                for key, value in six.iteritems(step.get_params(deep=True)):
-                    out['%s__%s' % (name, key)] = value
-            return out
-
     def _predict(self, X):
         """Collect results from clf.predict calls. """
         return np.asarray([clf.predict(X) for clf in self.estimators_]).T
+
+    def _seperately(self, label_similarities):
+        return label_similarities.flatten()
+
+    def _average_group(self, label_similarities):
+        return np.average(label_similarities, axis=0)
+
+    def _sum_group(self, label_similarities):
+        return np.average(label_similarities, axis=0)

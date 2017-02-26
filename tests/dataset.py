@@ -11,6 +11,7 @@ class DataProviderTests(unittest.TestCase):
             with self.assertRaises(TypeError):
                 self.provider.get(parameter)
 
+    @unittest.skip
     def test_abalone(self):
         source_map = {
             LearningSet.abalone: {'instances': 4174, 'attributes': 10, 'classes': 28},
@@ -34,7 +35,6 @@ class DataProviderTests(unittest.TestCase):
         }
 
         for learning_set in source_map:
-            print(learning_set)
             data, target, column_names = self.provider.get(learning_set)
             self.assertTupleEqual(data.shape, (source_map[learning_set]['instances'],
                                                source_map[learning_set]['attributes']))

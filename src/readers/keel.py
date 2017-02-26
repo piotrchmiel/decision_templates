@@ -15,7 +15,7 @@ from src.settings import DATA_DIR
 class KeelReader(object):
 
     def __init__(self, sparse: bool =False, missing_values_strategy: str = 'mean', *args, **kwargs):
-        self._vectorizer = DictVectorizer(sparse=sparse)
+        self._vectorizer = DictVectorizer(sparse=sparse, dtype=np.float64)
         self._imputer = Imputer(strategy=missing_values_strategy)
         self._processor = make_pipeline(self._vectorizer, self._imputer)
         self._keel_dir = os.path.join(DATA_DIR, 'keel')
@@ -28,7 +28,8 @@ class KeelReader(object):
         data, target, = self.read_data(filename=filename, start=start, delimiter=',', attributes=attributes)
         return self._processor.fit_transform(data), np.asarray(target), self._vectorizer.get_feature_names()
 
-    def make_k_fold_generator(self, filename: str, missing_values: bool, cv: int, *args, **kwargs):
+    def make_k_fold_generator(self, filename: str, missing_values: bool, cv: int, *args, **kwargs) \
+            -> Generator[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], Any, None]:
         k_fold_filename = filename + '-' + str(cv) + '-fold'
         self.prepare_data(k_fold_filename, missing_values)
 

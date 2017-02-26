@@ -39,6 +39,8 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
             self.estimators_mock[i][1].predict_proba = Mock(side_effect=side_effect_generator())
             self.estimators_mock[i][1].classes_ = [0, 1, 2]
 
+        self.group = 1
+
     def test_create_fit_one_template_per_class_by_avg_classical_kuncheva_algorithm(self):
         for estimator_no in range(1, len(self.estimators) + 1):
 
@@ -51,10 +53,11 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
 
             self.assertEqual(len(self.dectempl.templates_.keys()), 3)
             self.assertListEqual(list(self.dectempl.templates_.keys()), [0, 1, 2])
+            self.assertEqual(len(self.dectempl.groups_.keys()), 1)
 
             for class_templates in self.dectempl.templates_.values():
                 self.assertEqual(len(class_templates), 1)
-                self.assertTupleEqual(class_templates[0].shape, (estimator_no, len(self.dectempl.classes_)))
+                self.assertTupleEqual(class_templates[self.group][0].shape, (estimator_no, len(self.dectempl.classes_)))
 
     def test_predict_one_template_per_class_by_avg_classical_kuncheva_algorithm(self):
         self.dectempl.fit(self.target, self.labels)
@@ -68,7 +71,6 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
                                       [[0.99996380550968655, 0.59543293656855445, 0.58100665521394679],
                                        [0.99929086373833642, 0.6131342371589803, 0.59414955137607195]])
         np.testing.assert_array_equal(self.dectempl.predict(self.target[0:2]), ['Iris-setosa', 'Iris-setosa'])
-
 
     @patch('src.decision_templates.Parallel.__call__')
     def test_average_template_count(self, parallel):
@@ -87,28 +89,29 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
 
         for class_templates in self.dectempl.templates_.values():
             self.assertEqual(len(class_templates), 1)
-            self.assertTupleEqual(class_templates[0].shape, (len(self.estimators), len(self.dectempl.classes_)))
+            self.assertTupleEqual(class_templates[self.group][0].shape,
+                                  (len(self.estimators), len(self.dectempl.classes_)))
 
         result_class_0 = np.asarray([[0.0335, 0.335, 0.67],
                                      [0.0335, 0.335, 0.67],
                                      [0.0335, 0.335, 0.67],
                                      [0.0335, 0.335, 0.67]])
 
-        np.testing.assert_almost_equal(self.dectempl.templates_[0][0], result_class_0, 3)
+        np.testing.assert_almost_equal(self.dectempl.templates_[0][self.group][0], result_class_0, 3)
 
         result_class_1 = np.asarray([[0.0745, 0.745, 1.49],
                                      [0.0745, 0.745, 1.49],
                                      [0.0745, 0.745, 1.49],
                                      [0.0745, 0.745, 1.49]])
 
-        np.testing.assert_almost_equal(self.dectempl.templates_[1][0], result_class_1, 3)
+        np.testing.assert_almost_equal(self.dectempl.templates_[1][self.group][0], result_class_1, 3)
 
         result_class_2 = np.asarray([[0.1155,  1.155, 2.31],
                                      [0.1155, 1.155, 2.31],
                                      [0.1155, 1.155, 2.31],
                                      [0.1155, 1.155, 2.31]])
 
-        np.testing.assert_almost_equal(self.dectempl.templates_[2][0], result_class_2, 3)
+        np.testing.assert_almost_equal(self.dectempl.templates_[2][self.group][0], result_class_2, 3)
 
     def test_fit_one_template_for_each_class_by_avg(self):
         fake_y = ['red', 'red', 'green', 'blue', 'green', 'blue', 'green']
@@ -120,7 +123,7 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
         self.dectempl.le_.transform = Mock(return_value=[0, 1, 2])
         self.dectempl.classes_ = ['red', 'green', 'blue']
 
-        result = self.dectempl._fit_one_template_for_each_class_by_avg(X, fake_y, curr_sample_weight)
+        result = self.dectempl._fit_one_template_for_each_class_by_avg(self.group, X, fake_y, curr_sample_weight)
 
         for class_template in result.values():
             self.assertTupleEqual(class_template.shape, (4, 3))
@@ -157,7 +160,7 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
         self.dectempl.le_.transform = Mock(return_value=[0, 1, 2])
         self.dectempl.classes_ = ['red', 'green', 'blue']
 
-        result = self.dectempl._fit_one_template_for_each_class_by_avg(X, fake_y, curr_sample_weight)
+        result = self.dectempl._fit_one_template_for_each_class_by_avg(self.group, X, fake_y, curr_sample_weight)
 
         for class_template in result.values():
             self.assertTupleEqual(class_template.shape, (4, 3))
@@ -193,7 +196,7 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
         self.dectempl.le_.transform = Mock(return_value=[0, 1, 2])
         self.dectempl.classes_ = ['red', 'green', 'blue']
 
-        result = self.dectempl._fit_one_template_for_each_class_by_med(X, fake_y, curr_sample_weight)
+        result = self.dectempl._fit_one_template_for_each_class_by_med(self.group, X, fake_y, curr_sample_weight)
 
         for class_template in result.values():
             self.assertTupleEqual(class_template.shape, (4, 3))
@@ -229,7 +232,7 @@ class ScenariosAverageTemplate(ScenariosBase, unittest.TestCase):
         self.dectempl.le_.transform = Mock(return_value=[0, 1, 2])
         self.dectempl.classes_ = ['red', 'green', 'blue']
 
-        result = self.dectempl._fit_one_template_for_each_class_by_med(X, fake_y, curr_sample_weight)
+        result = self.dectempl._fit_one_template_for_each_class_by_med(self.group, X, fake_y, curr_sample_weight)
 
         for class_template in result.values():
             self.assertTupleEqual(class_template.shape, (4, 3))
