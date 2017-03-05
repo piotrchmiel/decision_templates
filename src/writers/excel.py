@@ -1,5 +1,6 @@
 from os.path import exists
-from openpyxl import load_workbook, Workbook, Worksheet
+from openpyxl import load_workbook, Workbook
+from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.styles import Alignment, Font
 from typing import List, Any
 

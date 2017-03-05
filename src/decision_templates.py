@@ -22,8 +22,9 @@ from sklearn.utils.fixes import bincount
 from sklearn.utils import check_random_state
 from sklearn.ensemble.voting_classifier import _parallel_fit_estimator
 from sklearn.ensemble.bagging import MAX_INT
+from sklearn.exceptions import NotFittedError
 from typing import List, Tuple, Any, Dict, DefaultDict
-
+from copy import deepcopy
 
 class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMixin):
     """DecisionTemplatesClassifier Rule classifier for unfitted estimators.
@@ -84,12 +85,12 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
     def __init__(self, estimators: List[Tuple[str, BaseEstimator]], groups_mapping: List[Tuple[Any]] = None,
                  similarity_measure: str = 'euclidean', template_construction: str = 'avg',
                  template_fit_strategy: str = 'one_per_class', n_templates: int = 1,
-                 similiarity_for_group: str = 'separately', decision_strategy: str = 'most_similar_template',
+                 decision_strategy: str = 'most_similar_template', similarity_for_group: str = 'separately',
                  k_similar_templates: int = 1, n_jobs: int = 1) -> None:
 
         self._validate_parameters(estimators=estimators, group_mapping=groups_mapping, n_templates=n_templates,
                                   similarity_measure=similarity_measure, template_construction=template_construction,
-                                  template_fit_strategy=template_fit_strategy, similarity_for_group=similiarity_for_group,
+                                  template_fit_strategy=template_fit_strategy, similarity_for_group=similarity_for_group,
                                   decision_strategy=decision_strategy, k_similar_templates=k_similar_templates,
                                   n_jobs=n_jobs)
 
@@ -97,7 +98,7 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         self.named_estimators = dict(estimators)
         self.similarity_measure = similarity_measure
         self.template_construction = template_construction
-        self.similarity_for_group = similiarity_for_group
+        self.similarity_for_group = similarity_for_group
         self.decision_strategy = decision_strategy
         self.k_similar_templates = k_similar_templates
         self.n_jobs = n_jobs
@@ -131,12 +132,10 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         self._decision = decision_algorithms[self.decision_strategy]
         self._make_decision_similarity = decision_similarities_algorithms[self.similarity_for_group]
 
-
     def _validate_parameters(self, estimators: List[Tuple[str, BaseEstimator]], group_mapping: List[Tuple[Any]],
                              similarity_measure: str, template_construction: str, template_fit_strategy: str,
                              n_templates: int, similarity_for_group: str,
                              decision_strategy: str, k_similar_templates: int, n_jobs: int) -> None:
-
         if estimators is None or len(estimators) == 0:
             raise AttributeError('Invalid `estimators` attribute, `estimators`'
                                  ' should be a list of (string, estimator)'
@@ -214,10 +213,7 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         self.classes_ = self.le_.classes_
         transformed_y = self.le_.transform(y)
 
-        self.estimators_ = Parallel(n_jobs=self.n_jobs)(
-                delayed(_parallel_fit_estimator)(clone(clf), X, transformed_y,
-                    sample_weight)
-                    for _, clf in self.estimators)
+        self.estimators_ = self._fit_estimators(X, transformed_y, sample_weight)
 
         self._fit_templates(X, transformed_y, sample_weight)
         return self
@@ -229,13 +225,26 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
             curr_sample_weight = sample_weight.copy()
 
         if self.template_fit_strategy == 'one_per_class':
-            return (curr_sample_weight, )
+            return curr_sample_weight,
         elif self.template_fit_strategy == 'bootstrap':
             return self._random_set(number_of_class_templates=self.n_templates, bootstrap=True,
                                     n_samples=n_samples, sample_weight=curr_sample_weight)
         elif self.template_fit_strategy == 'random_subspace':
             return self._random_set(number_of_class_templates=self.n_templates, bootstrap=False,
                                     n_samples=n_samples, sample_weight=curr_sample_weight)
+
+    def _fit_estimators(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray):
+        temporary_estimators = [deepcopy(clf) for _, clf in self.estimators]
+        try:
+            for clf in temporary_estimators:
+                check_is_fitted(clf, 'classes_')
+        except NotFittedError:
+            print("Not Fitted Error")
+            temporary_estimators = Parallel(n_jobs=self.n_jobs)(delayed(_parallel_fit_estimator)(clone(clf), X, y,
+                                                                                             sample_weight)
+                        for _, clf in self.estimators)
+
+        return temporary_estimators
 
     def _fit_templates(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray = None) -> None:
 
@@ -426,3 +435,4 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
     def _sum_group(self, label_similarities):
         return np.average(label_similarities, axis=0)
+
