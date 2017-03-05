@@ -8,10 +8,9 @@ from sklearn.ensemble import BaggingClassifier
 lr = LogisticRegression()
 knn = KNeighborsClassifier()
 gnb = GaussianNB()
-dectempl_avg = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)], template_creation='avg')
+dectempl_avg = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)], template_construction='avg',
+                                           template_fit_strategy='bootstrap', n_templates=5)
 provider = DataProvider()
 X, y, _ = provider.get(LearningSet.iris)
 
-BaggingClassifier().fit(X, y)
-for i in dectempl_avg._random_set(5, False, 40, np.ones((40,))):
-    print(i)
+dectempl_avg.fit(X, y)

@@ -41,10 +41,9 @@ if __name__ == '__main__':
     lr = LogisticRegression()
     knn = KNeighborsClassifier()
     gnb = GaussianNB()
-    dectempl_avg = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)], template_creation='avg')
+    dectempl_avg = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)],
+                                               template_construction='avg', template_fit_strategy='bootstrap',
+                                               n_templates=5
+                                               )
 
-    print(np.average(bench.cross_validation_score(dectempl_avg, learningSet=LearningSet.satimage)))
-
-    dectempl_med = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)], template_creation='med')
-
-    print(np.average(bench.cross_validation_score(dectempl_med, learningSet=LearningSet.satimage)))
+    print(np.average(bench.cross_validation_score(dectempl_avg, learningSet=LearningSet.iris)))
