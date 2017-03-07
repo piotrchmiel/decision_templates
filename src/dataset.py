@@ -1,10 +1,12 @@
+import os
 from enum import Enum, unique
-from typing import Tuple, List, Generator
+from typing import Tuple, List
 import numpy as np
 from src.readers.keel import KeelReader
 from sklearn.datasets.mldata import fetch_mldata
-
+from sklearn.model_selection import StratifiedKFold
 from src.settings import DATA_DIR
+from sklearn.externals.joblib import dump, load
 
 
 @unique
@@ -54,6 +56,9 @@ class DataProvider(object):
             LearningSet.yeast: {'source': 'keel', 'filename': 'yeast', 'missing_values': False},
         }
 
+        if not os.path.exists(DATA_DIR):
+            os.mkdir(DATA_DIR)
+
     def get(self, learning_set: LearningSet) -> Tuple[np.ndarray, np.ndarray, List[str]]:
         if not isinstance(learning_set, LearningSet):
             raise TypeError("Argument should be LearningSet enum type!")
@@ -64,10 +69,43 @@ class DataProvider(object):
         elif self.source_map[learning_set]['source'] == 'keel':
             return self.keel_reader.read(**self.source_map[learning_set])
 
-    def make_k_fold_generator(self, learning_set: LearningSet, cv: int):
+    def get_k_fold_generator(self, learning_set: LearningSet, cv: int):
         if not isinstance(learning_set, LearningSet):
             raise TypeError("Argument should be LearningSet enum type!")
-        elif not self.source_map[learning_set]['source'] == 'keel':
-            raise Exception("Function available for keel datasets")
-        else:
+        elif self.source_map[learning_set]['source'] == 'keel' and (cv == 10 or cv == 5):
             return self.keel_reader.make_k_fold_generator(**self.source_map[learning_set], cv=cv)
+        else:
+            return self.make_k_fold_generator(learning_set, cv)
+
+    def make_k_fold_generator(self, learning_set: LearningSet, cv: int):
+        path = os.path.join(DATA_DIR, self.source_map[learning_set]['source'])
+        filename_beginning = "cv_" + str(cv) + "_" + str(learning_set)
+        file_path = os.path.join(path, filename_beginning + ".pickle")
+
+        if not self.check_cv_fold_exists(path, filename_beginning):
+            self.save_folds(learning_set, cv, file_path)
+
+        k_fold_splits = load(file_path)
+
+        def k_fold_generator(learning_set: LearningSet, splits: List[Tuple[np.ndarray, np.ndarray]]):
+            X, y, _ = self.get(learning_set)
+            for train_index, test_index in splits:
+                yield X[train_index], y[train_index], X[test_index], y[test_index]
+
+        return k_fold_generator(learning_set, k_fold_splits)
+
+    def check_cv_fold_exists(self, path: str, filename_beginning: str):
+        dirs = os.listdir(path)
+        for file in dirs:
+            if file.startswith(filename_beginning):
+                return True
+        return False
+
+    def save_folds(self, learning_set: LearningSet, cv: int, file_path:str):
+        X, y, _ = self.get(learning_set)
+        skf = StratifiedKFold(n_splits=cv)
+        k_fold_split = skf.split(X, y)
+        splits = []
+        for train_index, test_index in k_fold_split:
+            splits.append((train_index, test_index))
+        dump(value=splits, filename=file_path, compress=3)

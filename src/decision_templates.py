@@ -22,9 +22,8 @@ from sklearn.utils.fixes import bincount
 from sklearn.utils import check_random_state
 from sklearn.ensemble.voting_classifier import _parallel_fit_estimator
 from sklearn.ensemble.bagging import MAX_INT
-from sklearn.exceptions import NotFittedError
 from typing import List, Tuple, Any, Dict, DefaultDict
-from copy import deepcopy
+
 
 class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMixin):
     """DecisionTemplatesClassifier Rule classifier for unfitted estimators.
@@ -234,17 +233,9 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
                                     n_samples=n_samples, sample_weight=curr_sample_weight)
 
     def _fit_estimators(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray):
-        temporary_estimators = [deepcopy(clf) for _, clf in self.estimators]
-        try:
-            for clf in temporary_estimators:
-                check_is_fitted(clf, 'classes_')
-        except NotFittedError:
-            print("Not Fitted Error")
-            temporary_estimators = Parallel(n_jobs=self.n_jobs)(delayed(_parallel_fit_estimator)(clone(clf), X, y,
-                                                                                             sample_weight)
-                        for _, clf in self.estimators)
 
-        return temporary_estimators
+        return Parallel(n_jobs=self.n_jobs)(delayed(_parallel_fit_estimator)(clone(clf), X, y, sample_weight)
+                                            for _, clf in self.estimators)
 
     def _fit_templates(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray = None) -> None:
 
@@ -263,7 +254,6 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
     def _fit_templates_for_each_group(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray):
         templates = defaultdict(dict)
-
         for group in self.groups_:
             temp_templates = self._fit_one_template_for_each_class(group, X, y, sample_weight)
             for label, template in temp_templates.items():
@@ -373,7 +363,6 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
             for group in self.groups_:
                 label_similarities.append([self._similarity_measure(template, decision_profiles[group])
                                            for template in self.templates_[label][group]])
-
             similarities[label] = self._make_decision_similarity(np.asarray(label_similarities, dtype=np.float64))
 
         return similarities

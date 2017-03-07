@@ -37,7 +37,7 @@ class ValidateParameters(unittest.TestCase):
     def test_should_validate_decision_similarity_in_init(self):
         for parameter in [None, "10", "20", []]:
             with self.assertRaises(ValueError):
-                DecisionTemplatesClassifier(estimators=[("KNN", KNeighborsClassifier)], similiarity_for_group=parameter)
+                DecisionTemplatesClassifier(estimators=[("KNN", KNeighborsClassifier)], similarity_for_group=parameter)
 
     def test_should_validate_decision_strategy_in_init(self):
         for parameter in [None, "10", "20", []]:
