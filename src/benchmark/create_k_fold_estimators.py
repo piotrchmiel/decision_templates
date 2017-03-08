@@ -65,5 +65,6 @@ if __name__ == '__main__':
     estimators = [("gnb", gnb), ("bnb", bnb), ("mlp1", mlp1), ("mlp2", mlp2), ("mlp3", mlp3)]
 
     for learning_set in LearningSet:
+        print(learning_set)
         estimator_creator.fit_and_save_base_estimators(estimators=estimators, learning_set=learning_set)
 

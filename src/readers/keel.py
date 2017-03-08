@@ -22,25 +22,39 @@ class KeelReader(object):
         if not os.path.exists(self._keel_dir):
             os.mkdir(self._keel_dir)
 
-    def read(self, filename: str, missing_values: bool, *args, **kwargs) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    def read(self, filename: str, missing_values: bool, *args, **kwargs) -> Tuple[List[dict], list]:
         self.prepare_data(filename=filename, missing_values=missing_values)
         attributes, start = self.read_header(filename=filename)
-        data, target, = self.read_data(filename=filename, start=start, delimiter=',', attributes=attributes)
+        return self.read_data(filename=filename, start=start, delimiter=',', attributes=attributes)
+
+    def make_dataset(self, filename: str, missing_values: bool, *args, **kwargs) \
+            -> Tuple[np.ndarray, np.ndarray, List[str]]:
+        data, target, = self.read(filename, missing_values, *args, **kwargs)
         return self._processor.fit_transform(data), np.asarray(target), self._vectorizer.get_feature_names()
+
+    def make_k_fold_dataset(self, filename: str, missing_values: bool, cv: int,  *args, **kwargs):
+
+        if not self._data_exists(filename, 'dat'):
+            k_fold_filename = filename.split('-')[0] + '-' + str(cv) + '-fold'
+            self.prepare_data(k_fold_filename, missing_values)
+
+        data, target = self.read(filename, missing_values)
+        return self._processor.transform(data), np.asarray(target), self._vectorizer.get_feature_names()
+
+    def _fit_processor(self, filename: str, missing_values: bool, *args, **kwargs):
+        data, target, = self.read(filename, missing_values, *args, **kwargs)
+        self._processor.fit(data)
 
     def make_k_fold_generator(self, filename: str, missing_values: bool, cv: int, *args, **kwargs) \
             -> Generator[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], Any, None]:
-        k_fold_filename = filename + '-' + str(cv) + '-fold'
-        self.prepare_data(k_fold_filename, missing_values)
+        self._fit_processor(filename=filename.split('-')[0], missing_values=missing_values, *args, **kwargs)
 
-        def k_fold_generator():
-            for i in range(1, cv+1):
-                i_fold_filename = filename + '-' + str(cv) + '-' + str(i)
-                train_data, train_labels, _ = self.read(i_fold_filename + 'tra', missing_values)
-                test_data, test_labels, _ = self.read(i_fold_filename + 'tst', missing_values)
-                yield train_data, train_labels, test_data, test_labels
+        for i in range(1, cv+1):
+            i_fold_filename = filename + '-' + str(cv) + '-' + str(i)
+            train_data, train_labels, _ = self.make_k_fold_dataset(i_fold_filename + 'tra', missing_values, cv)
+            test_data, test_labels, _ = self.make_k_fold_dataset(i_fold_filename + 'tst', missing_values, cv)
+            yield train_data, train_labels, test_data, test_labels
 
-        return k_fold_generator()
 
     def prepare_data(self, filename: str, missing_values: bool) -> None:
         if not self._data_exists(filename, 'dat'):

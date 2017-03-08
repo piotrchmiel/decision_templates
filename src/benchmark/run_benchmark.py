@@ -13,11 +13,17 @@ if __name__ == '__main__':
     bench = Benchmark()
     writer = XlsxWriter(RESULTS_SHEET)
 
+
     for learning_set in LearningSet:
         for algorithm, parameters in TESTING_PARAMETERS.items():
-            results = bench.cross_validation_score(parameters=parameters, learning_set=learning_set)
-            print(str(learning_set), results)
-            writer.append_results(str(learning_set), algorithm + "_avg", results, np.average(results))
-            results = bench.cross_validation_score(parameters=set_med_variant(parameters), learning_set=learning_set)
-            print(str(learning_set), results)
-            writer.append_results(str(learning_set), algorithm + "med", results, np.average(results))
+            results = bench.cross_validation_score(parameters=parameters, learning_set=LearningSet.breast)
+
+            """
+            if learning_set != LearningSet.abalone and learning_set != LearningSet.breast:
+                results = bench.cross_validation_score(parameters=parameters, learning_set=learning_set)
+                print(str(learning_set), results)
+                writer.append_results(str(learning_set), algorithm + "_avg", results, np.average(results))
+                results = bench.cross_validation_score(parameters=set_med_variant(parameters), learning_set=learning_set)
+                print(str(learning_set), results)
+                writer.append_results(str(learning_set), algorithm + "med", results, np.average(results))
+            """
