@@ -1,5 +1,6 @@
 import unittest
-from src.dataset import DataProvider, LearningSet
+from src.dataset import DataProvider
+from src.learning_set import LearningSet
 
 
 class DataProviderTests(unittest.TestCase):
@@ -12,7 +13,7 @@ class DataProviderTests(unittest.TestCase):
                 self.provider.get(parameter)
 
     @unittest.skip
-    def test_abalone(self):
+    def test_provider_get(self):
         source_map = {
             LearningSet.abalone: {'instances': 4174, 'attributes': 10, 'classes': 28},
             LearningSet.breast: {'instances': 286, 'attributes': 43, 'classes': 2},
@@ -40,3 +41,12 @@ class DataProviderTests(unittest.TestCase):
                                                source_map[learning_set]['attributes']))
             self.assertEqual(len(set(target)), source_map[learning_set]['classes'])
             self.assertEqual(len(column_names), source_map[learning_set]['attributes'])
+
+    @unittest.skip
+    def test_make_k_fold_generator(self):
+        for learning_set in LearningSet:
+            print(learning_set)
+            for train_X, train_y, test_X, test_y in self.provider.get_k_fold_generator(learning_set, 10):
+                self.assertEqual(train_X.shape[0], train_y.shape[0])
+                self.assertEqual(test_X.shape[0], test_y.shape[0])
+                self.assertEqual(train_X.shape[1], test_X.shape[1])

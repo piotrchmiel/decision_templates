@@ -217,7 +217,7 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         self._fit_templates(X, transformed_y, sample_weight)
         return self
 
-    def make_weights(self, n_samples: int,  sample_weight: np.ndarray):
+    def make_weights(self, n_samples: int, sample_weight: np.ndarray):
         if sample_weight is None:
             curr_sample_weight = np.ones((n_samples,))
         else:

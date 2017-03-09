@@ -1,4 +1,5 @@
-from src.dataset import DataProvider, LearningSet
+from src.dataset import DataProvider
+from src.learning_set import LearningSet
 from src.decision_templates import DecisionTemplatesClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB

@@ -3,18 +3,24 @@ import zipfile
 import itertools
 import urllib.parse
 import urllib.request
-import numpy as np
 from typing import Tuple, List, Callable, Any, Generator
 
+import numpy as np
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import Imputer
+from src.learning_set import LearningSet
 from src.settings import DATA_DIR
 
 
 class KeelReader(object):
 
-    def __init__(self, sparse: bool =False, missing_values_strategy: str = 'mean', *args, **kwargs):
+    def __init__(self, learning_set: LearningSet, filename: str, missing_values: bool, sparse: bool = False,
+                 missing_values_strategy: str = 'mean', *args, **kwargs):
+        self.learning_set = learning_set
+        self.filename = filename
+        self.missing_values = missing_values
+
         self._vectorizer = DictVectorizer(sparse=sparse, dtype=np.float64)
         self._imputer = Imputer(strategy=missing_values_strategy)
         self._processor = make_pipeline(self._vectorizer, self._imputer)
@@ -22,39 +28,34 @@ class KeelReader(object):
         if not os.path.exists(self._keel_dir):
             os.mkdir(self._keel_dir)
 
-    def read(self, filename: str, missing_values: bool, *args, **kwargs) -> Tuple[List[dict], list]:
+        self._data, self._target, = self.read(filename, missing_values)
+        self._processor.fit(self._data)
+
+    def make_dataset(self) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+        return self._processor.transform(self._data), np.asarray(self._target), self._vectorizer.get_feature_names()
+
+    def make_k_fold_generator(self, cv: int) \
+            -> Generator[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], Any, None]:
+
+        for i in range(1, cv + 1):
+            i_fold_filename = self.filename + '-' + str(cv) + '-' + str(i)
+            train_data, train_labels, _ = self._make_k_fold_dataset(i_fold_filename + 'tra', cv)
+            test_data, test_labels, _ = self._make_k_fold_dataset(i_fold_filename + 'tst', cv)
+            yield train_data, train_labels, test_data, test_labels
+
+    def _make_k_fold_dataset(self, fold_filename:str, cv: int):
+
+        if not self._data_exists(fold_filename, 'dat'):
+            k_fold_filename = fold_filename.split('-')[0] + '-' + str(cv) + '-fold'
+            self.prepare_data(k_fold_filename, self.missing_values)
+
+        data, target = self.read(fold_filename, self.missing_values)
+        return self._processor.transform(data), np.asarray(target), self._vectorizer.get_feature_names()
+
+    def read(self, filename: str, missing_values: bool) -> Tuple[List[dict], list]:
         self.prepare_data(filename=filename, missing_values=missing_values)
         attributes, start = self.read_header(filename=filename)
         return self.read_data(filename=filename, start=start, delimiter=',', attributes=attributes)
-
-    def make_dataset(self, filename: str, missing_values: bool, *args, **kwargs) \
-            -> Tuple[np.ndarray, np.ndarray, List[str]]:
-        data, target, = self.read(filename, missing_values, *args, **kwargs)
-        return self._processor.fit_transform(data), np.asarray(target), self._vectorizer.get_feature_names()
-
-    def make_k_fold_dataset(self, filename: str, missing_values: bool, cv: int,  *args, **kwargs):
-
-        if not self._data_exists(filename, 'dat'):
-            k_fold_filename = filename.split('-')[0] + '-' + str(cv) + '-fold'
-            self.prepare_data(k_fold_filename, missing_values)
-
-        data, target = self.read(filename, missing_values)
-        return self._processor.transform(data), np.asarray(target), self._vectorizer.get_feature_names()
-
-    def _fit_processor(self, filename: str, missing_values: bool, *args, **kwargs):
-        data, target, = self.read(filename, missing_values, *args, **kwargs)
-        self._processor.fit(data)
-
-    def make_k_fold_generator(self, filename: str, missing_values: bool, cv: int, *args, **kwargs) \
-            -> Generator[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], Any, None]:
-        self._fit_processor(filename=filename.split('-')[0], missing_values=missing_values, *args, **kwargs)
-
-        for i in range(1, cv+1):
-            i_fold_filename = filename + '-' + str(cv) + '-' + str(i)
-            train_data, train_labels, _ = self.make_k_fold_dataset(i_fold_filename + 'tra', missing_values, cv)
-            test_data, test_labels, _ = self.make_k_fold_dataset(i_fold_filename + 'tst', missing_values, cv)
-            yield train_data, train_labels, test_data, test_labels
-
 
     def prepare_data(self, filename: str, missing_values: bool) -> None:
         if not self._data_exists(filename, 'dat'):

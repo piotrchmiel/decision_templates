@@ -2,7 +2,8 @@ import unittest
 from unittest.mock import Mock, patch
 from copy import deepcopy
 import src.decision_templates
-from src.dataset import DataProvider, LearningSet
+from src.dataset import DataProvider
+from src.learning_set import LearningSet
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB, BernoulliNB
 from sklearn.neighbors import KNeighborsClassifier
