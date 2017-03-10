@@ -308,7 +308,9 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         return decision_profile
 
     def _random_set(self, number_of_class_templates, bootstrap: bool, n_samples: int, sample_weight: List[int]):
-        for seed in self.random_state.randint(MAX_INT, size=number_of_class_templates):
+        seeds = self.random_state.randint(MAX_INT, size=number_of_class_templates)
+        for seed in seeds:
+            print(seed)
             random_state = np.random.RandomState(seed)
             if bootstrap:
                 indices = random_state.randint(0, n_samples, n_samples)
