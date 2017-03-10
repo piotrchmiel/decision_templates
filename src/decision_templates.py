@@ -279,7 +279,8 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
     def _fit_one_template_for_each_class_by_med(self, group: Any, X: np.ndarray, y: np.ndarray,
                                                 sample_weight: np.ndarray) -> defaultdict:
 
-        templates = defaultdict(partial(np.zeros, shape=[self.groups_[group], len(self.classes_)], dtype=np.float64))
+        templates = defaultdict(partial(np.zeros, shape=[self.groups_[group], len(self.classes_)],
+                                        dtype=np.float64))
         templates_temp = defaultdict(list)
 
         for sample_no, (label, weight) in enumerate(zip(y, sample_weight)):
@@ -287,8 +288,12 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
             for _ in range(int(weight)):
                 templates_temp[label].append(DP)
 
-        for label in templates_temp.keys():
-            templates[label] = np.median(np.asarray(templates_temp[label], dtype=np.float64), axis=0)
+        for label in self.le_.transform(self.classes_):
+            if templates_temp[label]:
+                templates[label] = np.median(np.asarray(templates_temp[label], dtype=np.float64), axis=0)
+            else:
+                templates[label]
+
         return templates
 
     def _make_decision_profile(self, group: Any, x: np.ndarray) -> np.ndarray:
