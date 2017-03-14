@@ -4,6 +4,7 @@ DecisionTemplates classifier.
 This module contains a DecisionTemplates rule classifier for classification estimators.
 
 """
+from os import getpid
 from collections import defaultdict, Counter
 from functools import partial
 
@@ -103,6 +104,7 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         self.n_jobs = n_jobs
         self.estimators_ = []
         self.classes_ = []
+        self.transformed_classes_ = []
         self.le_ = LabelEncoder()
         self.template_fit_strategy = template_fit_strategy
         self.n_templates = n_templates
@@ -210,27 +212,13 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
         self.le_.fit(y)
         self.classes_ = self.le_.classes_
+        self.transformed_classes_ = self.le_.transform(self.le_.classes_)
         transformed_y = self.le_.transform(y)
 
         self.estimators_ = self._fit_estimators(X, transformed_y, sample_weight)
 
         self._fit_templates(X, transformed_y, sample_weight)
         return self
-
-    def make_weights(self, n_samples: int, sample_weight: np.ndarray):
-        if sample_weight is None:
-            curr_sample_weight = np.ones((n_samples,))
-        else:
-            curr_sample_weight = sample_weight.copy()
-
-        if self.template_fit_strategy == 'one_per_class':
-            return curr_sample_weight,
-        elif self.template_fit_strategy == 'bootstrap':
-            return self._random_set(number_of_class_templates=self.n_templates, bootstrap=True,
-                                    n_samples=n_samples, sample_weight=curr_sample_weight)
-        elif self.template_fit_strategy == 'random_subspace':
-            return self._random_set(number_of_class_templates=self.n_templates, bootstrap=False,
-                                    n_samples=n_samples, sample_weight=curr_sample_weight)
 
     def _fit_estimators(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray):
 
@@ -239,10 +227,10 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
     def _fit_templates(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray = None) -> None:
 
-        weights = self.make_weights(X.shape[0], sample_weight)
+        weights = self.make_weights(X, y, sample_weight)
 
         group_templates = Parallel(n_jobs=self.n_jobs)(delayed(self._fit_templates_for_each_group)
-                                                       (X, y, curr_sample_weight) for curr_sample_weight in weights)
+                                                       (X, y, label_to_weights) for label_to_weights in weights)
         for template in group_templates:
 
             self.append_new_templates(template)
@@ -252,24 +240,25 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
             for group, template in group_dict.items():
                 self.templates_[label][group].append(template)
 
-    def _fit_templates_for_each_group(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray):
+    def _fit_templates_for_each_group(self, X: np.ndarray, y: np.ndarray, label_to_weights: Dict[int, np.ndarray]):
         templates = defaultdict(dict)
         for group in self.groups_:
-            temp_templates = self._fit_one_template_for_each_class(group, X, y, sample_weight)
+            temp_templates = self._fit_one_template_for_each_class(group, X, y, label_to_weights)
             for label, template in temp_templates.items():
                 templates[label][group] = template
 
         return templates
 
     def _fit_one_template_for_each_class_by_avg(self, group: Any, X: np.ndarray, y: np.ndarray,
-                                                sample_weight: np.ndarray) -> defaultdict:
+                                                label_to_weights: Dict[int, np.ndarray]) -> defaultdict:
 
         templates = defaultdict(partial(np.zeros, shape=[self.groups_[group], len(self.classes_)], dtype=np.float64))
         count_weights = Counter()
 
-        for sample_no, (label, weight) in enumerate(zip(y, sample_weight)):
-            templates[label] += np.multiply(self._make_decision_profile(group, X[sample_no]), weight)
-            count_weights.update({label: weight})
+        for sample_no, label in enumerate(y):
+            templates[label] += np.multiply(self._make_decision_profile(group, X[sample_no]),
+                                            label_to_weights[label][sample_no])
+            count_weights.update({label: label_to_weights[label][sample_no]})
         for label, count in count_weights.items():
             if count != 0:
                 templates[label] = np.divide(templates[label], np.float64(count))
@@ -277,18 +266,18 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         return templates
 
     def _fit_one_template_for_each_class_by_med(self, group: Any, X: np.ndarray, y: np.ndarray,
-                                                sample_weight: np.ndarray) -> defaultdict:
+                                                label_to_weights: Dict[int, np.ndarray]) -> defaultdict:
 
         templates = defaultdict(partial(np.zeros, shape=[self.groups_[group], len(self.classes_)],
                                         dtype=np.float64))
         templates_temp = defaultdict(list)
 
-        for sample_no, (label, weight) in enumerate(zip(y, sample_weight)):
+        for sample_no, label in enumerate(y):
             DP = self._make_decision_profile(group, X[sample_no])
-            for _ in range(int(weight)):
+            for _ in range(label_to_weights[label][sample_no]):
                 templates_temp[label].append(DP)
 
-        for label in self.le_.transform(self.classes_):
+        for label in self.transformed_classes_:
             if templates_temp[label]:
                 templates[label] = np.median(np.asarray(templates_temp[label], dtype=np.float64), axis=0)
             else:
@@ -303,22 +292,9 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
                             if group in group_map_tupple)
 
         for i, estimator in enumerate(group_estimators):
-            assert np.array_equal(estimator.classes_, self.le_.transform(self.classes_))
+            assert np.array_equal(estimator.classes_, self.transformed_classes_)
             decision_profile[i] = estimator.predict_proba([x])
         return decision_profile
-
-    def _random_set(self, number_of_class_templates, bootstrap: bool, n_samples: int, sample_weight: List[int]):
-        seeds = self.random_state.randint(MAX_INT, size=number_of_class_templates)
-        for seed in seeds:
-            print(seed)
-            random_state = np.random.RandomState(seed)
-            if bootstrap:
-                indices = random_state.randint(0, n_samples, n_samples)
-                curr_sample_weight = sample_weight.copy()
-                sample_counts = bincount(indices, minlength=n_samples)
-                yield curr_sample_weight * sample_counts
-            else:
-                yield random_state.randint(0, 2, n_samples)
 
     def predict(self, X: np.ndarray):
         """ Predict class labels for X.
@@ -365,7 +341,7 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         decision_profiles = self._make_decision_profiles_for_all_groups(feature_vector)
         similarities = defaultdict(list)
 
-        for label in self.le_.transform(self.classes_):
+        for label in self.transformed_classes_:
             label_similarities = []
             for group in self.groups_:
                 label_similarities.append([self._similarity_measure(template, decision_profiles[group])
@@ -375,7 +351,7 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         return similarities
 
     def _most_similar_template(self, similarities: DefaultDict[Any, np.ndarray]) -> np.ndarray:
-        return np.asarray([max(similarities[label]) for label in self.le_.transform(self.classes_)], dtype=np.float64)
+        return np.asarray([max(similarities[label]) for label in self.transformed_classes_], dtype=np.float64)
 
     def _k_nearest_templates(self, similarities: DefaultDict[Any, np.ndarray]):
         raise NotImplementedError
@@ -422,6 +398,51 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
     def _predict(self, X):
         """Collect results from clf.predict calls. """
         return np.asarray([clf.predict(X) for clf in self.estimators_]).T
+
+    def make_weights(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray) -> List[Dict[int, np.ndarray]]:
+        n_samples = X.shape[0]
+        if sample_weight is None:
+            curr_sample_weight = np.ones((n_samples,), dtype=np.int32)
+        else:
+            curr_sample_weight = np.asanyarray(sample_weight.copy(), dtype=np.int32)
+
+        if self.template_fit_strategy == 'one_per_class':
+            return self._sample_weights_for_each_class([curr_sample_weight])
+        elif self.template_fit_strategy == 'bootstrap':
+            return self._sample_weights_for_each_class(self._random_set(
+                number_of_class_templates=self.n_templates, bootstrap=True, n_samples=n_samples,
+                sample_weight=curr_sample_weight))
+        elif self.template_fit_strategy == 'random_subspace':
+            return self._sample_weights_for_each_class(self._random_set(
+                number_of_class_templates=self.n_templates, bootstrap=False, n_samples=n_samples,
+                sample_weight=curr_sample_weight))
+
+    def _random_set(self, number_of_class_templates, bootstrap: bool, n_samples: int, sample_weight: List[int]) \
+            -> List[np.ndarray]:
+        seeds = self.random_state.randint(MAX_INT, size=number_of_class_templates)
+        random_weights = []
+        for seed in seeds:
+            random_state = np.random.RandomState(seed + (getpid() * (getpid() % 10)))
+            if bootstrap:
+                indices = random_state.randint(0, n_samples, n_samples)
+                curr_sample_weight = sample_weight.copy()
+                sample_counts = bincount(indices, minlength=n_samples)
+                random_weights.append(np.asarray(curr_sample_weight * sample_counts, dtype=np.int32))
+            else:
+                random_weights.append(random_state.randint(0, 2, n_samples))
+
+        return random_weights
+
+    def _sample_weights_for_each_class(self, random_weights: List[np.ndarray]) -> List[Dict[int, np.ndarray]]:
+        sample_weights_for_each_class = []
+
+        for sample_weight in random_weights:
+            label_to_weight = {}
+            for label in self.transformed_classes_:
+                label_to_weight[label] = sample_weight
+            sample_weights_for_each_class.append(label_to_weight)
+
+        return sample_weights_for_each_class
 
     def _seperately(self, label_similarities):
         return label_similarities.flatten()

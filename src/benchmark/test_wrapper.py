@@ -27,10 +27,10 @@ class DecisionTemplatesClassifierWrapper(DecisionTemplatesClassifier):
             self.fold_estimator_creator.save_base_estimators(temporary_estimators)
             return temporary_estimators
 
-    def make_weights(self, n_samples: int, sample_weight: np.ndarray):
+    def make_weights(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray):
         if os.path.exists(self.weights_creator.path):
             return self.weights_creator.load_base_estimators()
         else:
-            temporary_weights = list(super().make_weights(n_samples, sample_weight))
+            temporary_weights = super().make_weights(X, y, sample_weight)
             self.weights_creator.save_base_estimators(temporary_weights)
             return temporary_weights

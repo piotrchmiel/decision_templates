@@ -123,16 +123,17 @@ class Scenarios(unittest.TestCase):
 
     def test_fit_one_template_for_each_class_by_avg(self):
         group = 1
-        fake_y = ['red', 'red', 'green', 'blue', 'green', 'blue', 'green']
+        fake_y = [0, 0, 1, 2, 1, 2, 1]
         X = self.target[:7]
-        curr_sample_weight = np.ones((len(fake_y)))
+        curr_sample_weight = np.ones((len(fake_y), ), dtype=np.int32)
 
         self.dectempl = src.decision_templates.DecisionTemplatesClassifier(estimators=self.estimators_mock)
         self.dectempl.estimators_ = [estimator[1] for estimator in self.estimators_mock]
-        self.dectempl.le_.transform = Mock(return_value=[0, 1, 2])
+        self.dectempl.transformed_classes_ = [0, 1, 2]
         self.dectempl.classes_ = ['red', 'green', 'blue']
+        sample_weights = self.dectempl._sample_weights_for_each_class([curr_sample_weight])
 
-        result = self.dectempl._fit_one_template_for_each_class_by_avg(group, X, fake_y, curr_sample_weight)
+        result = self.dectempl._fit_one_template_for_each_class_by_avg(group, X, fake_y, sample_weights[0])
 
         for class_template in result.values():
             self.assertTupleEqual(class_template.shape, (4, 3))
@@ -142,35 +143,36 @@ class Scenarios(unittest.TestCase):
                                        [0.0005,  0.005,  0.01],
                                        [0.0005,  0.005,  0.01]])
 
-        np.testing.assert_array_almost_equal(result['red'], result_class_red)
+        np.testing.assert_array_almost_equal(result[0], result_class_red)
 
         result_class_green = np.asarray([[0.004,  0.04,  0.08],
                                          [0.004,  0.04,  0.08],
                                          [0.004,  0.04,  0.08],
                                          [0.004,  0.04,  0.08]])
 
-        np.testing.assert_array_almost_equal(result['green'], result_class_green)
+        np.testing.assert_array_almost_equal(result[1], result_class_green)
 
         result_class_blue= np.asarray([[0.004,  0.04,  0.08],
                                        [0.004,  0.04,  0.08],
                                        [0.004,  0.04,  0.08],
                                        [0.004,  0.04,  0.08]])
 
-        np.testing.assert_array_almost_equal(result['blue'], result_class_blue)
+        np.testing.assert_array_almost_equal(result[2], result_class_blue)
 
 
     def test_fit_one_template_for_each_class_by_avg_with_weights(self):
         group = 1
-        fake_y = ['red', 'red', 'green', 'blue', 'green', 'blue', 'green']
+        fake_y = [0, 0, 1, 2, 1, 2, 1]
         X = self.target[:7]
-        curr_sample_weight = [0.0, 0.0, 2.0, 1.0, 1.0, 1.0, 3.0]
+        curr_sample_weight = [0, 0, 2, 1, 1, 1, 3]
 
         self.dectempl = src.decision_templates.DecisionTemplatesClassifier(estimators=self.estimators_mock)
         self.dectempl.estimators_ = [estimator[1] for estimator in self.estimators_mock]
-        self.dectempl.le_.transform = Mock(return_value=[0, 1, 2])
+        self.dectempl.transformed_classes_ = [0, 1, 2]
         self.dectempl.classes_ = ['red', 'green', 'blue']
+        sample_weights = self.dectempl._sample_weights_for_each_class([curr_sample_weight])
 
-        result = self.dectempl._fit_one_template_for_each_class_by_avg(group, X, fake_y, curr_sample_weight)
+        result = self.dectempl._fit_one_template_for_each_class_by_avg(group, X, fake_y, sample_weights[0])
 
         for class_template in result.values():
             self.assertTupleEqual(class_template.shape, (4, 3))
@@ -180,34 +182,36 @@ class Scenarios(unittest.TestCase):
                                        [0.0,  0.0,  0.0],
                                        [0.0,  0.0,  0.0]])
 
-        np.testing.assert_array_almost_equal(result['red'], result_class_red)
+        np.testing.assert_array_almost_equal(result[0], result_class_red)
 
         result_class_green = np.asarray([[0.004333,  0.043333,  0.086667],
                                          [0.004333,  0.043333,  0.086667],
                                          [0.004333,  0.043333,  0.086667],
                                          [0.004333,  0.043333,  0.086667]])
 
-        np.testing.assert_array_almost_equal(result['green'], result_class_green)
+        np.testing.assert_array_almost_equal(result[1], result_class_green)
 
         result_class_blue = np.asarray([[0.004,  0.04,  0.08],
                                        [0.004,  0.04,  0.08],
                                        [0.004,  0.04,  0.08],
                                        [0.004,  0.04,  0.08]])
 
-        np.testing.assert_array_almost_equal(result['blue'], result_class_blue)
+        np.testing.assert_array_almost_equal(result[2], result_class_blue)
 
     def test_fit_one_template_for_each_class_by_med(self):
         group = 1
-        fake_y = ['red', 'red', 'green', 'blue', 'green', 'blue', 'green']
+        fake_y = [0, 0, 1, 2, 1, 2, 1]
         X = self.target[:7]
-        curr_sample_weight = np.ones((len(fake_y)))
+        curr_sample_weight = np.ones((len(fake_y), ), dtype=np.int32)
 
         self.dectempl = src.decision_templates.DecisionTemplatesClassifier(estimators=self.estimators_mock)
         self.dectempl.estimators_ = [estimator[1] for estimator in self.estimators_mock]
-        self.dectempl.le_.transform = Mock(return_value=[0, 1, 2])
+        self.dectempl.transformed_classes_ = [0, 1, 2]
         self.dectempl.classes_ = ['red', 'green', 'blue']
 
-        result = self.dectempl._fit_one_template_for_each_class_by_med(group, X, fake_y, curr_sample_weight)
+        sample_weights = self.dectempl._sample_weights_for_each_class([curr_sample_weight])
+
+        result = self.dectempl._fit_one_template_for_each_class_by_med(group, X, fake_y, sample_weights[0])
 
         for class_template in result.values():
             self.assertTupleEqual(class_template.shape, (4, 3))
@@ -217,34 +221,36 @@ class Scenarios(unittest.TestCase):
                                        [0.0005, 0.005, 0.01],
                                        [0.0005, 0.005, 0.01]])
 
-        np.testing.assert_array_almost_equal(result['red'], result_class_red)
+        np.testing.assert_array_almost_equal(result[0], result_class_red)
 
         result_class_green = np.asarray([[0.004, 0.04, 0.08],
                                          [0.004, 0.04, 0.08],
                                          [0.004, 0.04, 0.08],
                                          [0.004, 0.04, 0.08]])
 
-        np.testing.assert_array_almost_equal(result['green'], result_class_green)
+        np.testing.assert_array_almost_equal(result[1], result_class_green)
 
         result_class_blue = np.asarray([[0.004, 0.04, 0.08],
                                         [0.004, 0.04, 0.08],
                                         [0.004, 0.04, 0.08],
                                         [0.004, 0.04, 0.08]])
 
-        np.testing.assert_array_almost_equal(result['blue'], result_class_blue)
+        np.testing.assert_array_almost_equal(result[2], result_class_blue)
 
     def test_fit_one_template_for_each_class_by_med_with_weights(self):
         group = 1
-        fake_y = ['red', 'red', 'green', 'blue', 'green', 'blue', 'green']
+        fake_y = [0, 0, 1, 2, 1, 2, 1]
         X = self.target[:7]
-        curr_sample_weight = [0.0, 2.0, 2.0, 1.0, 1.0, 1.0, 3.0]
+        curr_sample_weight = [0, 2, 2, 1, 1, 1, 3]
 
         self.dectempl = src.decision_templates.DecisionTemplatesClassifier(estimators=self.estimators_mock)
         self.dectempl.estimators_ = [estimator[1] for estimator in self.estimators_mock]
-        self.dectempl.le_.transform = Mock(return_value=[0, 1, 2])
+        self.dectempl.transformed_classes_ = [0, 1, 2]
         self.dectempl.classes_ = ['red', 'green', 'blue']
 
-        result = self.dectempl._fit_one_template_for_each_class_by_med(group, X, fake_y, curr_sample_weight)
+        sample_weights = self.dectempl._sample_weights_for_each_class([curr_sample_weight])
+
+        result = self.dectempl._fit_one_template_for_each_class_by_med(group, X, fake_y, sample_weights[0])
 
         for class_template in result.values():
             self.assertTupleEqual(class_template.shape, (4, 3))
@@ -254,18 +260,18 @@ class Scenarios(unittest.TestCase):
                                        [0.001, 0.01, 0.02],
                                        [0.001, 0.01, 0.02]])
 
-        np.testing.assert_array_almost_equal(result['red'], result_class_red)
+        np.testing.assert_array_almost_equal(result[0], result_class_red)
 
         result_class_green = np.asarray([[0.005,  0.05,  0.1],
                                          [0.005,  0.05,  0.1],
                                          [0.005,  0.05,  0.1],
                                          [0.005,  0.05,  0.1]])
 
-        np.testing.assert_array_almost_equal(result['green'], result_class_green)
+        np.testing.assert_array_almost_equal(result[1], result_class_green)
 
         result_class_blue = np.asarray([[0.004,  0.04,  0.08],
                                         [0.004,  0.04,  0.08],
                                         [0.004,  0.04,  0.08],
                                         [0.004,  0.04,  0.08]])
 
-        np.testing.assert_array_almost_equal(result['blue'], result_class_blue)
+        np.testing.assert_array_almost_equal(result[2], result_class_blue)

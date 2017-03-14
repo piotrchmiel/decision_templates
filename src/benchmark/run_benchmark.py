@@ -35,4 +35,4 @@ if __name__ == '__main__':
             results = bench.cross_validation_score(parameters=set_med_variant(learn_parameters),
                                                    learning_set=learning_set, n_jobs=-1)
             print(str(learning_set), results)
-            writer.append_results(str(learning_set), algorithm + "med", results, np.average(results))
+            writer.append_results(str(learning_set), algorithm + "_med", results, np.average(results))

@@ -13,7 +13,7 @@ class MiscellaneousTests(unittest.TestCase):
         self.dectempl = DecisionTemplatesClassifier(estimators=[('knn', knn), ('knn1', knn)])
         self.dectempl.estimators_ = [knn, knn]
         self.dectempl.classes_ = [1, 2]
-        self.dectempl.le_.transform = Mock(return_value=[1, 2])
+        self.dectempl.transformed_classes_ = [1, 2]
 
     def test_decision_profile_creation(self):
         decision_profile = self.dectempl._make_decision_profile(group=1, x=np.asarray([0.4334, 0.4344, 4334, 4343],
