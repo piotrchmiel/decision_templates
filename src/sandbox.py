@@ -17,11 +17,8 @@ le_.fit(y)
 classes_ = le_.classes_
 transformed_y = le_.transform(y)
 
-lr.fit(X, transformed_y)
-knn.fit(X, transformed_y)
-gnb.fit(X, transformed_y)
 
 dectempl_avg = DecisionTemplatesClassifier(estimators=[('lr', lr), ('knn', knn), ('gnb', gnb)], template_construction='avg',
-                                           template_fit_strategy='bootstrap', n_templates=5)
+                                           template_fit_strategy='cluster', n_templates=5)
 
-dectempl_avg.fit(X, y)
+dectempl_avg.fit(X, y, None)

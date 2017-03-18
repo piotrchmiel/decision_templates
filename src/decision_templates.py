@@ -16,6 +16,7 @@ from sklearn.base import BaseEstimator
 from sklearn.base import ClassifierMixin
 from sklearn.base import TransformerMixin
 from sklearn.base import clone
+from sklearn.cluster import KMeans
 from sklearn.preprocessing import LabelEncoder
 from sklearn.externals.joblib import Parallel, delayed
 from sklearn.utils.validation import has_fit_parameter, check_is_fitted
@@ -118,7 +119,13 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
         self.groups_ = Counter([group_name for group_tuple in self.groups_mapping_ for group_name in set(group_tuple)])
 
-        similarity_measures = {'euclidean': self.euclidean_similarity}
+        similarity_measures = {'euclidean': self.euclidean_similarity,
+                               'fuzzy_intersection_divided_by_fuzzy_union':
+                                   self.fuzzy_intersection_divided_by_fuzzy_union,
+                               'symetric_difference_hamming': self.symetric_difference_hamming,
+                               'symetric_difference': self.symetric_difference,
+                               'camberra': self.camberra,
+                               'cosine': self.cosine}
         template_creation_algorithms = {'avg': self._fit_one_template_for_each_class_by_avg,
                                         'med': self._fit_one_template_for_each_class_by_med}
         decision_algorithms = {'most_similar_template': self._most_similar_template,
@@ -164,10 +171,12 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         if template_construction not in ['avg', 'med']:
             raise ValueError("Unrecognized template_construction:".format(template_construction))
 
-        if template_fit_strategy not in ['one_per_class', 'bootstrap', 'random_subspace']:
+        if template_fit_strategy not in ['one_per_class', 'bootstrap', 'random_subspace', 'cluster']:
             raise ValueError("Unrecognized template_fit_strategy:".format(template_fit_strategy))
 
-        if similarity_measure not in ['euclidean']:
+        if similarity_measure not in ['euclidean', 'fuzzy_intersection_divided_by_fuzzy_union',
+                                      'symetric_difference_hamming', 'symetric_difference',
+                                      'cosine', 'camberra']:
             raise ValueError("Unrecognized similarity measure:".format(similarity_measure))
 
         if similarity_for_group not in ['separately', 'average_group', 'sum_group']:
@@ -250,26 +259,27 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
         return templates
 
     def _fit_one_template_for_each_class_by_avg(self, group: Any, X: np.ndarray, y: np.ndarray,
-                                                label_to_weights: Dict[int, np.ndarray]) -> defaultdict:
-
-        templates = defaultdict(partial(np.zeros, shape=[self.groups_[group], len(self.classes_)], dtype=np.float64))
+                                                label_to_weights: Dict[int, np.ndarray]) -> Dict[int, np.ndarray]:
+        templates = {label: np.zeros(shape=[self.groups_[group], len(self.classes_)], dtype=np.float64)
+                     for label in self.transformed_classes_}
         count_weights = Counter()
 
         for sample_no, label in enumerate(y):
-            templates[label] += np.multiply(self._make_decision_profile(group, X[sample_no]),
-                                            label_to_weights[label][sample_no])
-            count_weights.update({label: label_to_weights[label][sample_no]})
+            weight = label_to_weights[label][sample_no]
+            if weight != 0:
+                templates[label] += np.multiply(self._make_decision_profile(group, X[sample_no]), weight)
+                count_weights.update({label: weight})
+
         for label, count in count_weights.items():
-            if count != 0:
-                templates[label] = np.divide(templates[label], np.float64(count))
+            templates[label] = np.divide(templates[label], np.float64(count))
 
         return templates
 
     def _fit_one_template_for_each_class_by_med(self, group: Any, X: np.ndarray, y: np.ndarray,
-                                                label_to_weights: Dict[int, np.ndarray]) -> defaultdict:
+                                                label_to_weights: Dict[int, np.ndarray]) -> Dict[int, np.ndarray]:
 
-        templates = defaultdict(partial(np.zeros, shape=[self.groups_[group], len(self.classes_)],
-                                        dtype=np.float64))
+        templates = {label: np.zeros(shape=[self.groups_[group], len(self.classes_)], dtype=np.float64)
+                     for label in self.transformed_classes_}
         templates_temp = defaultdict(list)
 
         for sample_no, label in enumerate(y):
@@ -277,11 +287,9 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
             for _ in range(label_to_weights[label][sample_no]):
                 templates_temp[label].append(DP)
 
-        for label in self.transformed_classes_:
+        for label in templates_temp:
             if templates_temp[label]:
                 templates[label] = np.median(np.asarray(templates_temp[label], dtype=np.float64), axis=0)
-            else:
-                templates[label]
 
         return templates
 
@@ -325,10 +333,33 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
 
         return self._decision(similarities)
 
+    def realtive_cardinality(self, U: np.ndarray):
+        return np.divide(np.sum(U), np.multiply(len(self.estimators_), len(self.classes_)))
+
     def euclidean_similarity(self, DT: np.ndarray, DP: np.ndarray) -> np.float64:
         check_consistent_length(DT, DP)
-        return np.float64(np.subtract(1.0, np.divide(np.sum(np.power(np.subtract(DT, DP), 2)),
-                                                     np.multiply(len(self.estimators_),len(self.classes_)))))
+        return np.float64(np.subtract(1.0, self.realtive_cardinality(np.power(np.subtract(DT, DP), 2))))
+
+    def fuzzy_intersection_divided_by_fuzzy_union(self, DT: np.ndarray, DP: np.ndarray) -> np.float64:
+        check_consistent_length(DT, DP)
+        return np.float64(np.divide(self.realtive_cardinality(np.minimum(DT, DP)),
+                                    self.realtive_cardinality(np.maximum(DT, DP))))
+
+    def symetric_difference_hamming(self, DT: np.ndarray, DP: np.ndarray) -> np.float64:
+        return np.float64(np.subtract(1.0, self.realtive_cardinality(np.absolute(np.subtract(DT, DP)))))
+
+    def symetric_difference(self, DT: np.ndarray, DP: np.ndarray) -> np.float64:
+        return np.float64(np.subtract(1.0, self.realtive_cardinality(np.maximum(
+            np.minimum(DT, np.subtract(1, DP)), np.minimum(np.subtract(1, DT), DP)))))
+
+    def camberra(self, DT: np.ndarray, DP: np.ndarray) -> np.float64:
+        return np.float64(np.subtract(1.0, self.realtive_cardinality(
+            np.divide(np.absolute(np.subtract(DT, DP)), np.absolute(np.add(DT, DP))))))
+
+    def cosine(self, DT: np.ndarray, DP: np.ndarray) -> np.float64:
+        return np.float64(self.realtive_cardinality(
+            np.divide(np.add(DT, DP), np.multiply(np.power(np.power(DT, 2), 0.5),
+                                                  np.power(np.power(DP, 2), 0.5)))))
 
     def _make_decision_profiles_for_all_groups(self, feature_vector: np.ndarray) -> Dict[Any, np.ndarray]:
         decision_profiles = {}
@@ -416,6 +447,37 @@ class DecisionTemplatesClassifier(BaseEstimator, ClassifierMixin, TransformerMix
             return self._sample_weights_for_each_class(self._random_set(
                 number_of_class_templates=self.n_templates, bootstrap=False, n_samples=n_samples,
                 sample_weight=curr_sample_weight))
+        elif self.template_fit_strategy == 'cluster':
+            return self._cluster_weights(X, y)
+
+    def _cluster_weights(self, X: np.ndarray, y: np.ndarray) -> List[Dict[int, np.ndarray]]:
+        sample_weights_for_each_class = [{} for _ in range(self.n_templates)]
+
+        for label in self.transformed_classes_:
+            index = np.where(y == label)[0]
+            if len(index) >= self.n_templates:
+                self._cluster_index_for_label(X, index, label, sample_weights_for_each_class)
+            else:
+                self._unable_to_create_clusters(X, index, label, sample_weights_for_each_class)
+
+        return sample_weights_for_each_class
+
+    def _cluster_index_for_label(self, X: np.ndarray, index: np.ndarray, label: int,
+                                 sample_weights_for_each_class: List[Dict[int, np.ndarray]]) -> None:
+
+        k_means = KMeans(n_clusters=self.n_templates, max_iter=800)
+        predictions = k_means.fit_predict(X[index])
+        for i in range(self.n_templates):
+            cluster_template_index = np.zeros(X.shape[0], dtype=np.int8)
+            cluster_template_index[index[np.where(predictions == i)[0]]] = 1
+            sample_weights_for_each_class[i][label] = cluster_template_index
+
+    def _unable_to_create_clusters(self, X: np.ndarray, index: np.ndarray, label: int,
+                                 sample_weights_for_each_class: List[Dict[int, np.ndarray]]) -> None:
+        for i in range(self.n_templates):
+            cluster_template_index = np.zeros(X.shape[0], dtype=np.int8)
+            cluster_template_index[index] = 1
+            sample_weights_for_each_class[i][label] = cluster_template_index
 
     def _random_set(self, number_of_class_templates, bootstrap: bool, n_samples: int, sample_weight: List[int]) \
             -> List[np.ndarray]:

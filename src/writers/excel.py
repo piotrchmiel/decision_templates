@@ -37,18 +37,17 @@ class XlsxWriter(object):
             cell.number_format = '0.00000%'
 
     def create_header(self, k_fold: int) -> List[Any]:
-        header = ["Algorithm"]
+        header = ["Algorithm", "Average"]
         for i in range(1, k_fold + 1):
             header.append("Fold " + str(i))
-        header.append("Average")
 
         return header
 
     def append_results(self, sheet_name: str, algorithm: str, results: List[float], average: float) -> None:
         ws = self.get_or_create_sheet(sheet_name, len(results))
         row = [algorithm]
-        row.extend(results)
         row.append(average)
+        row.extend(results)
         ws.append(row)
         self.format_results(ws)
         self.set_colum_width(ws)
